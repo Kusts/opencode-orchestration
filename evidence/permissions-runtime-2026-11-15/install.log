@@ -1,0 +1,56 @@
+[install] runtime=V2 decision=target reason=explicit always wins (sem probe)
+[install] Config owner detectado: texto global e perfis worker agents.* NAO serao escritos.
+[install] SKIP agents-md: texto global pertence ao agent-config.
+Backup: 24 arquivo(s) em C:\Users\walis\.config\opencode\backups\oo-20261114-231804
+RESULT: INSTALLED=19 UNCHANGED=5 PRESERVED=15 CONFLICT=0 FAILED=0
+[STATE] agents PASS
+[STATE] config PASS
+[STATE] plugin PASS
+[STATE] skills PASS
+[STATE] AGENTS.md PASS
+[smoke v2] version 2.x reconhecida: opencode v2.3.0
+[smoke v2] ok: debug paths resolve config dentro do TargetHome instalado.
+
+Instalacao concluida.
+Plano aplicado:
+  [SKIP] AGENTS.md (dono agent-config:global; texto global nao aplicado)
+  [UPDATE] agents/ai-agent-engineer.md
+  [UPDATE] agents/architect.md
+  [UPDATE] agents/automation-engineer.md
+  [UPDATE] agents/backend-engineer.md
+  [UPDATE] agents/coder.md
+  [UPDATE] agents/database-engineer.md
+  [UPDATE] agents/debugger.md
+  [UPDATE] agents/docs-manager.md
+  [UPDATE] agents/engineering-advisor.md
+  [UPDATE] agents/explorer.md
+  [UPDATE] agents/frontend-engineer.md
+  [UPDATE] agents/infra-engineer.md
+  [UPDATE] agents/product-designer.md
+  [UPDATE] agents/requirements-analyst.md
+  [UPDATE] agents/researcher.md
+  [UPDATE] agents/reviewer.md
+  [UPDATE] agents/security-reviewer.md
+  [UPDATE] agents/skeptic.md
+  [UPDATE] agents/tester.md
+  [SKIP] skills/addy-incremental-delivery/ (inalterado)
+  [SKIP] skills/bmad-structured-delivery/ (inalterado)
+  [PRESERVE] skills/dispatching-parallel-agents/ (junction; skills compartilhadas do agent-config)
+  [PRESERVE] skills/hybrid-development/ (junction; skills compartilhadas do agent-config)
+  [SKIP] skills/pocock-technical-decisions/ (inalterado)
+  [PRESERVE] skills/subagent-driven-development/ (junction; skills compartilhadas do agent-config)
+  [PRESERVE] skills/using-superpowers/ (junction; skills compartilhadas do agent-config)
+  [PRESERVE] skills/verification-before-completion/ (junction; skills compartilhadas do agent-config)
+  [SKIP] plugins/orchestration-enforcement.js (bundle autocontido) (inalterado)
+  [PRESERVE] plugins/ai-memory-opencode2.ts (arquivo do usuario, intacto)
+  [PRESERVE] plugins/herdr-agent-state.js (arquivo do usuario, intacto)
+  [PRESERVE] plugins/orca-opencode2-status.js (arquivo do usuario, intacto)
+  [PRESERVE] plugins/orca-opencode-status.js (arquivo do usuario, intacto)
+  [PRESERVE] plugins/reason-network.ts (arquivo do usuario, intacto)
+  [PRESERVE] mcp.*
+  [PRESERVE] update (chave de topo desconhecida)
+  [PRESERVE] skills (chave de topo desconhecida)
+  [PRESERVE] permissions (chave de topo desconhecida)
+  [PRESERVE] providers (chave de topo desconhecida)
+Backup: C:\Users\walis\.config\opencode\backups\oo-20261114-231804 (24 arquivo(s))
+Reinicie o OpenCode para carregar AGENTS.md, agents, skills e plugin.

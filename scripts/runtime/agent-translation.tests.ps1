@@ -158,7 +158,7 @@ foreach ($stem in @($canonById.Keys | Sort-Object)) {
   $c = $canonById[$stem]
   $guardOk = $true
   $guardErr = ''
-  try { Assert-NoAmbiguousOverlap -ShellRules @($c.ShellRules) | Out-Null }
+  try { $ordered = @(Get-OrderedV2ShellRules -Canonical $c); Assert-NoAmbiguousOverlap -ShellRules @($ordered | ForEach-Object { @{ Pattern=[string]$_.Resource; Effect=[string]$_.Effect } }) | Out-Null }
   catch { $guardOk = $false; $guardErr = $_.Exception.Message }
   try { Assert-NoAmbiguousOverlap -ShellRules @($c.TaskRules) | Out-Null }
   catch { $guardOk = $false; $guardErr = $_.Exception.Message }
@@ -230,8 +230,8 @@ Assert-Ok ((@($rxV2.DroppedFields) -contains 'permission.webfetch') -and (@($rxV
 Assert-Ok ([string]$rxV2.Text -notlike '*webfetch*') 'researcher V2 sem webfetch' 'vazou'
 
 $synthAmbig = @(
-  @{ Pattern = 'git st*'; Effect = 'ask' },
-  @{ Pattern = 'git status'; Effect = 'deny' }
+  @{ Pattern = 'git diff *'; Effect = 'allow' },
+  @{ Pattern = 'git *--output*'; Effect = 'deny' }
 )
 $threwAmbig = $false
 $msgAmbig = ''

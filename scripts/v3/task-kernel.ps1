@@ -2,6 +2,9 @@
 .SYNOPSIS
     Task Kernel CLI: thin wrapper over lib/OrchestrationTaskKernel.ps1.
 .DESCRIPTION
+    For team-add/team-release, CoordinatorSessionId is caller-asserted,
+    like bind-session identity. The gate blocks worker self-promotion but
+    does not cryptographically prove the originating session.
     Actions:
       create        - New-OrchestrationTask (needs -TaskId -Objective; optional -Project for active-work dedupe: same objective+scope+DoD+project on an ACTIVE task returns DUPLICATE_ACTIVE_WORK, never merges; optional -RequireTypedWaits switch for a sticky per-task typed-wait requirement; optional -VerificationProfiles commits the immutable verification plan before model dispatch)
       check-duplicate - Get-OrchestrationDuplicateWork query (needs -Objective; optional scopes/criteria/project; read-only, no creation)
@@ -15,8 +18,12 @@
       review        - Set-OrchestrationTaskReview (needs -TaskId -ReviewKind reviewer|security -ReviewStatus approved|changes_required -ReviewBy -ExpectedRevision; optional anchored findings via -FindingsFile or -FindingsJson, validated/bounded, persisted in the review entry)
       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
        retry-decision - Record advisory localized-repair decision; increments revision (concurrent writers may CAS_CONFLICT); EXHAUSTED is terminal, so ESCALATE is recordable only while attempts < budget
+
+       review-schema - Print the versioned anchored-review findings schema (read-only; no -TaskId)
+       record-repair-decision - Add advisory repair decision (needs -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy; optional -Severity low|medium|high|critical -ChangedFiles 0..100000 -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -Attempts 0..100 -FailureClass localized|unknown|structural)
       event-attach  - Add-OrchestrationTaskEvent (needs -TaskId -ExpectedRevision; optional -EnvelopeFile or -EnvelopeJson; delivers one validated GitHub event to event_inbox with idempotent dedup)
-      event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary; idempotent consumption/settlement ack)
+       event-ack     - Confirm-OrchestrationTaskEvent (needs -TaskId -DedupKey -SessionId -ExpectedRevision; optional -ResponseSummary -ContextOnly; idempotent consumption/settlement ack)
+       handback      - Set-OrchestrationTaskHandback (needs -TaskId -SessionId -Summary -ExpectedRevision; optional -NextSteps -DedupKey -ContextOnly)
       block         - Block-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision; optional typed wait -WaitType -WaitOwner -WaitAction [-WaitDependencyId]; re-block with the same wait fingerprint is idempotent)
       cancel        - Cancel-OrchestrationTask (needs -TaskId -Actor -Reason -ExpectedRevision)
       complete      - Complete-OrchestrationTask (needs -TaskId -Actor -ExpectedRevision)
@@ -58,6 +65,10 @@ param(
     [string]$ToState = '',
     [string]$WorkerStatus = '',
     [string]$ProducedBy = '',
+    [string]$DetailContent = '',
+    [string]$DetailPath = '',
+    [ValidateSet('tool-output','session-log','test-output','diff','other')][string]$DetailKind = 'other',
+    [int]$DetailPreviewChars = 2000,
     [string[]]$ClaimedEvidence = @(),
     [string]$Passed = '',
     [string[]]$Evidence = @(),
@@ -69,10 +80,21 @@ param(
     [string]$ReviewBy = '',
     [string]$FindingsFile = '',
     [string]$FindingsJson = '',
+    [string]$RepairDecisionJson = '',
+    [string]$RecordedBy = '',
+    [string]$Severity = 'medium',
+    [int]$ChangedFiles = 0,
+    [bool]$ScopeOverlap = $true,
+    [bool]$ExternalEffectsAmbiguous = $false,
+    [bool]$EvidenceCurrent = $true,
+    [int]$Attempts = 0,
     [string]$EnvelopeFile = '',
     [string]$EnvelopeJson = '',
     [string]$DedupKey = '',
     [string]$ResponseSummary = '',
+    [string]$Summary = '',
+    [string]$NextSteps = '',
+    [switch]$ContextOnly,
     [string]$Reason = '',
     [int]$ExpectedRevision = -1,
     [string[]]$ResidualRisks = @(),
@@ -127,11 +149,6 @@ param(
     [string]$StrategyFingerprint = '',
     [string]$FailureClass = '',
     [string]$FailureDetail = '',
-    [ValidateSet('low','medium','high','critical')][string]$Severity = 'medium',
-    [int]$ChangedFiles = 1,
-    [ValidateSet('true','false')][string]$ScopeOverlap = '',
-    [ValidateSet('true','false')][string]$ExternalEffectsAmbiguous = '',
-    [ValidateSet('true','false')][string]$EvidenceCurrent = '',
     [string]$EvidenceStoreDir = '',
     [int]$VirtualizeThresholdBytes = 4096,
     [int]$Attempt = 0,
@@ -149,6 +166,7 @@ param(
     ,[string]$RunId = '', [string]$SeatId = '', [string]$BindingRuntime = '', [string]$BindingVersion = '',
     [string]$ParentSessionId = '', [string]$RootSessionId = '', [switch]$WorkerSession,
     [string]$RequiredTier = '', [string]$ChildSessionId = '', [string]$PolicyPath = '',
+    [string]$Role = '', [string]$CoordinatorSessionId = '',
     [string]$CliRepoRoot = '', [string[]]$VerifierProfiles = @(),
     [string]$ModelComplexity = '', [switch]$RequiresLlm
 )
@@ -208,9 +226,14 @@ function Get-TaskKernelExitCode {
 }
 
 $action = ([string]$Action).Trim().ToLowerInvariant()
-$validActions = @('create', 'get', 'get-evidence', 'status', 'transition', 'record-result', 'verify', 'verify-run', 'review', 'review-schema', 'retry-decision', 'event-attach', 'event-ack', 'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn', 'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session', 'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select')
+$validActions = @('create', 'get', 'get-evidence', 'status', 'transition', 'record-result', 'record-repair-decision',
+    'verify', 'verify-run', 'review', 'review-schema', 'retry-decision', 'event-attach', 'event-ack', 'handback',
+    'block', 'cancel', 'complete', 'get-budget', 'start-attempt', 'set-budget', 'planner-turn',
+    'watchdog-interrupt', 'watchdog-settle', 'check-duplicate', 'bind-session', 'rebind-session',
+    'detach-session', 'get-bindings', 'model-attempt', 'model-proof', 'model-select',
+    'team-add', 'team-release', 'team-get')
 if ($validActions -cnotcontains $action) {
-    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action create|get|get-evidence|status|transition|record-result|verify|review|review-schema|retry-decision|block|cancel|complete|get-budget|start-attempt|set-budget|planner-turn|watchdog-interrupt|watchdog-settle|check-duplicate ...'
+    Write-TaskKernelCliError 'Uso: task-kernel.ps1 -Action <acao> (inclui get-evidence); retry-decision exige -TaskId -ExpectedRevision -Severity -ChangedFiles -ScopeOverlap -ExternalEffectsAmbiguous -EvidenceCurrent -FailureClass; team-add exige -TaskId -SessionId -Role -RunId -CoordinatorSessionId -ExpectedRevision; team-release exige -TaskId -SessionId -CoordinatorSessionId -ExpectedRevision; team-get exige -TaskId.'
     exit 2
 }
 
@@ -283,6 +306,34 @@ function Convert-TaskKernelBudgetInt {
 
 $result = $null
 switch ($action) {
+    'team-add' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or
+            [string]::IsNullOrWhiteSpace($Role) -or [string]::IsNullOrWhiteSpace($RunId) -or
+            [string]::IsNullOrWhiteSpace($CoordinatorSessionId)) {
+            Write-TaskKernelCliError 'team-add exige -TaskId -SessionId -Role -RunId -CoordinatorSessionId -ExpectedRevision.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $result = Add-OrchestrationTaskTeamMember -TaskId $TaskId -SessionId $SessionId `
+            -Role $Role -RunId $RunId -CoordinatorSessionId $CoordinatorSessionId `
+            -ExpectedRevision $ExpectedRevision -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'team-release' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or
+            [string]::IsNullOrWhiteSpace($CoordinatorSessionId)) {
+            Write-TaskKernelCliError 'team-release exige -TaskId -SessionId -CoordinatorSessionId -ExpectedRevision.'
+            exit 2
+        }
+        Assert-TaskKernelRevision
+        $result = Remove-OrchestrationTaskTeamMember -TaskId $TaskId -SessionId $SessionId `
+            -CoordinatorSessionId $CoordinatorSessionId -ExpectedRevision $ExpectedRevision `
+            -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'team-get' {
+        if ([string]::IsNullOrWhiteSpace($TaskId)) { Write-TaskKernelCliError 'team-get exige -TaskId.'; exit 2 }
+        $result = Get-OrchestrationTaskTeam -TaskId $TaskId -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+
     'review-schema' {
         $hasReviewSchemaArgs = (-not [string]::IsNullOrWhiteSpace($TaskId)) -or
             (($PSBoundParameters.ContainsKey('ExpectedRevision')) -and ([int]$ExpectedRevision -ne 0)) -or
@@ -301,8 +352,8 @@ switch ($action) {
         exit 0
     }
     'retry-decision' {
-        if ([string]::IsNullOrWhiteSpace($TaskId) -or $ExpectedRevision -lt 0 -or [string]::IsNullOrWhiteSpace($FailureClass) -or -not $PSBoundParameters.ContainsKey('Severity') -or -not $PSBoundParameters.ContainsKey('ChangedFiles')) {
-            Write-TaskKernelCliError 'retry-decision exige -TaskId -ExpectedRevision -Severity -ChangedFiles -FailureClass localized|unknown|structural.'; exit 2
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or $ExpectedRevision -lt 0 -or [string]::IsNullOrWhiteSpace($FailureClass)) {
+            Write-TaskKernelCliError 'retry-decision exige -TaskId -ExpectedRevision -FailureClass localized|unknown|structural.'; exit 2
         }
         if ($FailureClass -notin @('localized','unknown','structural') -or $ChangedFiles -lt 0 -or $ChangedFiles -gt 100000) {
             Write-TaskKernelCliError 'retry-decision recebeu sinais invalidos.'; exit 2
@@ -345,7 +396,7 @@ switch ($action) {
             -WriteScopes (Split-TaskKernelCliList -Value $WriteScopes) -Grants (Split-TaskKernelCliList -Value $Grants) `
             -AcceptanceCriteria (Split-TaskKernelCliList -Value $AcceptanceCriteria) `
             -ExpectedArtifacts (Split-TaskKernelCliList -Value $ExpectedArtifacts) `
-            -VerificationProfiles (Split-TaskKernelCliList -Value $VerifierProfiles) `
+            -VerificationProfiles ([string[]]@(Split-TaskKernelCliList -Value $VerifierProfiles)) `
             -EnvironmentAllowed (Split-TaskKernelCliList -Value $EnvironmentAllowed) `
             -ProductionAuthorized ([bool]$ProductionAuthorized) -AttemptBudget ([int]$abConv.value) `
             -BudgetProfile $BudgetProfile -BudgetPolicyPath $BudgetPolicyPath `
@@ -370,6 +421,16 @@ switch ($action) {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or ([string]::IsNullOrWhiteSpace($RunId) -and $action -ne 'detach-session')) { Write-TaskKernelCliError 'binding exige -TaskId -SessionId e -RunId (exceto detach-session, que o resolve se unico).'; exit 1 }
         if ($ExpectedRevision -lt 0) { Write-TaskKernelCliError 'binding exige -ExpectedRevision.'; exit 1 }
         $op='bind'; if($action -eq 'rebind-session'){$op='rebind'} elseif($action -eq 'detach-session'){$op='detach'}
+        if ($op -eq 'bind' -and $WorkerSession) {
+            $bindTask=Get-OrchestrationTask -TaskId $TaskId -TasksDir $TasksDir
+            $activeOwner=''
+            try { $activeOwner=([string]$bindTask['bindings']['active_execution_owner']).Trim() } catch { $activeOwner='' }
+            if (-not [string]::IsNullOrWhiteSpace($activeOwner) -and
+                [string]::IsNullOrWhiteSpace($ParentSessionId)) {
+                Write-TaskKernelCliError 'bind-session -WorkerSession exige -ParentSessionId igual ao owner ativo.'
+                exit 2
+            }
+        }
         if ($op -eq 'detach' -and [string]::IsNullOrWhiteSpace($RunId)) {
             $boundTask=Get-OrchestrationTask -TaskId $TaskId -TasksDir $TasksDir
             if ($null -eq $boundTask -or $boundTask.PSObject.Properties['error']) { $result=$boundTask }
@@ -446,8 +507,10 @@ switch ($action) {
             FailureClass = $FailureClass; FailureDetail = $FailureDetail; RecoverySource = $RecoverySource
             NewEvidenceRefs = (Split-TaskKernelCliList -Value $NewEvidenceRefs)
             TasksDir = $TasksDir; FlagsPath = $FlagsPath; EvidenceStoreDir = $EvidenceStoreDir
-            VirtualizeThresholdBytes = $VirtualizeThresholdBytes
+            VirtualizeThresholdBytes = $VirtualizeThresholdBytes; DetailKind = $DetailKind; DetailPreviewChars = $DetailPreviewChars
         }
+        if ($PSBoundParameters.ContainsKey('DetailContent')) { $workerResultArgs.DetailContent = $DetailContent }
+        if ($PSBoundParameters.ContainsKey('DetailPath')) { $workerResultArgs.DetailPath = $DetailPath }
         if (-not [string]::IsNullOrWhiteSpace($EvidenceStoreDir)) {
             $workerResultArgs.TasksDir = $canonTasksRecord
             $workerResultArgs.FlagsPath = $canonFlagsRecord
@@ -505,6 +568,14 @@ switch ($action) {
             }
         }
         catch { $result = New-TaskKernelError -Code 'ARTIFACT_READ_FAILED' }
+
+    }
+    'record-repair-decision' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($RecordedBy) -or [string]::IsNullOrWhiteSpace($RepairDecisionJson)) { Write-TaskKernelCliError 'record-repair-decision exige -TaskId -ExpectedRevision -RepairDecisionJson -RecordedBy.'; exit 2 }
+        Assert-TaskKernelRevision
+        $repairFailureClass = $FailureClass
+        if ([string]::IsNullOrWhiteSpace($repairFailureClass)) { $repairFailureClass = 'unknown' }
+        $result = Add-OrchestrationTaskRepairDecision -TaskId $TaskId -RepairDecisionJson $RepairDecisionJson -ExpectedRevision $ExpectedRevision -RecordedBy $RecordedBy -Severity $Severity -ChangedFiles $ChangedFiles -ScopeOverlap $ScopeOverlap -ExternalEffectsAmbiguous $ExternalEffectsAmbiguous -EvidenceCurrent $EvidenceCurrent -Attempts $Attempts -FailureClass $repairFailureClass -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'verify' {
         if ([string]::IsNullOrWhiteSpace($TaskId)) {
@@ -618,7 +689,12 @@ switch ($action) {
         Assert-TaskKernelRevision
         $result = Confirm-OrchestrationTaskEvent -TaskId $TaskId -DedupKey $DedupKey -SessionId $SessionId `
             -ResponseSummary $ResponseSummary -ExpectedRevision ([int]$ExpectedRevision) `
-            -TasksDir $TasksDir -FlagsPath $FlagsPath
+            -ContextOnly:$ContextOnly -TasksDir $TasksDir -FlagsPath $FlagsPath
+    }
+    'handback' {
+        if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($SessionId) -or [string]::IsNullOrWhiteSpace($Summary)) { Write-TaskKernelCliError 'handback exige -TaskId -SessionId -Summary -ExpectedRevision.'; exit 2 }
+        Assert-TaskKernelRevision
+        $result = Set-OrchestrationTaskHandback -TaskId $TaskId -SessionId $SessionId -Summary $Summary -NextSteps $NextSteps -DedupKey $DedupKey -ContextOnly:$ContextOnly -ExpectedRevision ([int]$ExpectedRevision) -TasksDir $TasksDir -FlagsPath $FlagsPath
     }
     'block' {
         if ([string]::IsNullOrWhiteSpace($TaskId) -or [string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($Reason)) {

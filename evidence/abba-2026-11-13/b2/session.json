@@ -1,0 +1,89 @@
+{
+  "session_id": "ses_e257f98b2ffeoKOXPXznjYy540",
+  "root_session_id": "ses_e2867895effeybCXdjFDRmmnGc",
+  "run_id": "abba-b2-20261113",
+  "assistantMessageID": "msg_1da80a186001t9morBfHglFZ3t",
+  "response": "ABBA_B2_OK",
+  "model": "openai/gpt-6-luna",
+  "snapshot_timestamp": "2026-11-14T14:42:34.5921232Z",
+  "api_snapshot": {
+    "start": "1659941885345053135de2f24207f48abba99998",
+    "end": "1659941885345053135de2f24207f48abba99998",
+    "records_including_user_and_idle": 7,
+    "assistant_messages_aggregated": 5,
+    "tool_calls_count": 4,
+    "skill_calls_count": 0
+  },
+  "metrics_aggregated": {
+    "input_tokens": 1686,
+    "output_tokens": 377,
+    "reasoning_tokens": 0,
+    "cache_read_tokens": 165120,
+    "cache_write_tokens": 0,
+    "cost": 0,
+    "currency": "USD",
+    "elapsed_ms_user_prompt_created_to_final_completed": 17226
+  },
+  "control_audit": {
+    "skill_calls_count": 0,
+    "control_valid": true,
+    "skill_calls": []
+  },
+  "tool_calls": [
+    {
+      "id": "call_b08770d955da4ceeb00471c9a1762c4a",
+      "name": "shell",
+      "created_ms": 1794667211665,
+      "input": {
+        "command": "Get-Content b2/lib/calc.ps1; Get-Content b2/run-tests.ps1"
+      }
+    },
+    {
+      "id": "call_f635bd51fee64a3cbbbeeba375bee296",
+      "name": "shell",
+      "created_ms": 1794667215555,
+      "input": {
+        "command": "Get-Content b2/tests/calc.tests.ps1; Get-ChildItem b2/lib"
+      }
+    },
+    {
+      "id": "call_b91c0d2d8f734f10bde1399b8fb27bd5",
+      "name": "patch",
+      "created_ms": 1794667218769,
+      "input": {
+        "file": "scratchpad/abba/b2/lib/calc.ps1",
+        "summary": "Iterate through every value, including the final array element"
+      }
+    },
+    {
+      "id": "call_e7eea9c995a1427aa0aeb743543ddabc",
+      "name": "shell",
+      "created_ms": 1794667222954,
+      "input": {
+        "command": "powershell -NoProfile -File b2/run-tests.ps1",
+        "exit_code": 0
+      }
+    }
+  ],
+  "task_evidence": {
+    "task_id": "abba-b2-20261113",
+    "write_scopes": ["scratchpad/abba"],
+    "verification_profiles": ["abba-b2"],
+    "worker_status": "candidate_pass",
+    "claimed_evidence_requested": [
+      "session:ses_e257f98b2ffeoKOXPXznjYy540",
+      "message:msg_1da80a186001t9morBfHglFZ3t"
+    ],
+    "verify_run": {
+      "revision": 8,
+      "passed": true,
+      "status": "verified_pass",
+      "verification_source": "kernel-executed"
+    }
+  },
+  "manual_test": {
+    "command": "powershell -NoProfile -File scratchpad/abba/b2/run-tests.ps1",
+    "output": "criterion:0:PASS",
+    "exit_code": 0
+  }
+}

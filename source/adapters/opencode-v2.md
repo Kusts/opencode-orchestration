@@ -61,16 +61,16 @@ histórica, sem efeito).
   necessárias. Sem prova segura de que a execucao nao comecou, nao ha replay automatico
   apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Sonnet, nunca T3/T4
   por fallback automático.
-- Nenhuma cadeia de elegibilidade abaixo e executada pelo runtime nesta versao: sao regras estaticas da politica canonica, sem retry, fallback ou override automatico.
+- As cadeias abaixo definem candidatos permitidos pela policy; a seleção do próximo candidato é mediada pelo Planner e não executada automaticamente pelo runtime.
 - Researcher/Explorer/Docs Manager: T1 inicial, T2 sob escalonamento quando requerido. Tester: T0 determinístico, T1 trivial/simples, T2 não-trivial. Nenhum dos quatro usa T3/T4 automaticamente. Engineering-advisor: mínimo T3 (Sonnet primário/Terra fallback), T2 proibido.
-- Elegibilidade de substituição do cheap pool (política canônica de elegibilidade por tier —
-  **não** é retry/fallback/override automático; ver "Implementação nativa atual" abaixo):
-  em falha de disponibilidade/erro do modelo default, a ordem candidata é estática (apenas para auditoria), **implementação em HOLD**:
-  - **T1:** `opencode-go/iceman-contributor-free` → `opencode/mimo-v2.6-flash-free` (mesmo tier apenas).
-  - **T2 geral:** candidatos em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` → `claude-agent/haiku` → `openai/gpt-6-luna`; isto é apenas ordem estática de auditoria, a rota produtiva fica em HOLD. Capacidade Claude local e prova de no-start são condições de elegibilidade, não autorização de despacho; caller `NoExecutionStarted=true` não é prova.
-    `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. `opencode-go/deepseek-v4.1-flash` é o primário T2 por seleção explícita do operador (adendo 2026-11-04); ZDR segue `expired-unconfirmed` sem alegação de renovação/conformidade (não envie dados sensíveis cuja proteção exija ZDR; somente dados não-sensíveis até ZDR verificado).
-  - **T3:** candidatos em ordem `claude-agent/sonnet` (primário) → `openai/gpt-6.1-terra`; recuperação T2 só como candidata degradada para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Despacho técnico permanece HOLD sem prova independente de no-start. Engineering-advisor é T3-only.
-  - **T4:** candidatos em ordem `claude-agent/opus` (primário) → `openai/gpt-6.1-sol` (mesmo tier); recuperação T2 só como candidata degradada audit-only para papéis admissíveis a T2, na ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` (policy-level, sem retry em runtime; reviewer high/critical, security, advisor, architect e papéis não-T2 seguem `REJECTED_DOWNGRADE_FORBIDDEN`). `openai/gpt-6-astra` somente com prova kernel-owned de falha funcional do Opus, mesma tarefa e papel admissível; `claude-agent/fable` permanece HOLD porque a prova atual é primária e não comprova falha específica do Astra. T4 não exige aprovação manual por chamada (decisão do usuário); gates de prova, capability e papel continuam.
+- Elegibilidade de substituição por tier (a lista define candidatos, não autoriza
+  retry por si só). O protocolo Planner-mediado comprovado está descrito em
+  **Fallback nativo mediado pelo Planner** abaixo:
+  - **T1:** `openai/gpt-6-luna` → `opencode/mimo-v2.6-flash-free` (mesmo tier apenas).
+  - **T2 geral:** candidatos em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` → `claude-agent/haiku` → `openai/gpt-6-luna`. Capacidade Claude local e prova observada de no-start são condições; caller `NoExecutionStarted=true` não prova não-início.
+    `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. A decisão datada de 2026-11-04 que selecionava DeepSeek Go como primário T2 é histórica/superada pela policy vigente; ZDR segue `expired-unconfirmed` (não envie dados sensíveis cuja proteção exija ZDR).
+  - **T3:** `claude-agent/sonnet` → `openai/gpt-6.1-terra`; candidatos de recuperação T2 somente para papéis admissíveis a T2, em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Engineering-advisor é T3-only.
+  - **T4:** `claude-agent/opus` → `openai/gpt-6.1-sol` é candidato de política, sem transição real comprovada; T2 degradado só para papéis admissíveis. `openai/gpt-6-astra` continua excepcional e proof-gated por prova Kernel-owned; `claude-agent/fable` permanece HOLD.
   - **Cadeia canônica de escalonamento (decisão 2026-11-10, issue #208):** o caminho
     autorizado para prova é T3 `claude-agent/sonnet` → T4 `claude-agent/opus` →
     `openai/gpt-6-astra` (excepcional, somente após prova T4 válida). `openai/gpt-6.1-sol`
@@ -83,7 +83,13 @@ histórica, sem efeito).
   - Aliases `claude-agent/*` permanecem `resolution_status: runtime-unverified`;
     `catalog_inventory_id` é proveniência do inventário, nunca mapeamento.
     IDs `claude-agent/sonnet|opus|haiku|fable` exibem nomes Sonnet 5.5/Opus 5.5/Haiku 5.5/Fable 5.1 no catálogo local, todos `released=0`, `cost=[]`; outros IDs versionados não provam mapeamento dos aliases curtos. Sem prova independente, não afirmar pin/versão executada; resposta Haiku não prova passagem para Sonnet/Opus.
-  - **Fallback técnico/HOLD:** `Resolve-OrchestrationModelFallback` enumera ordem para auditoria e retorna HOLD (`CandidateModel` não-autorizador, `FallbackModel=null`, `IsAuthorized=false`). Booleans `NoExecutionStarted`/erros/timeout não confiáveis; sem prova independente não há replay. `Invoke-OrchestrationModelExecution` é single-call. Capacidade produtiva de fallback permanece HOLD até prova confiável de no-start. Um teste de matriz determinístico pode reportar ordem candidata mas não faz dispatch. A ordem candidata é estática da política e a implementação permanece em HOLD.
+  - **Fallback nativo mediado pelo Planner (contrato atual, T1/T2 comprovados e limitados):** o Planner seleciona `model`/`tier` (`task-kernel -Action model-select` ou Router) e chama UMA vez a tool nativa `subagent`. Fluxo: **erro observado → evidência correlacionada fornecida pelo chamador → `model-fallback.ps1 -Action next` → um único redispatch nativo autorizado na MESMA Task (sem replanejar a missão) → registro pós-dispatch**. O helper **nunca fabrica** a prova e **nunca despacha**; erro/classificação isolados não provam não-início.
+    - `-Action next` exige `-AttemptId`, `-TaskId`, `-AttemptRole`, `-FailedModel`, `-FailureJson` e `-AttemptEvidenceJson` explícito/correlacionado: `source` ∈ {`dispatcher`,`runtime_event`,`provider`}, `stage=pre_dispatch`, `task_id`, `attempt_id` igual a `-AttemptId`, `requested_model` igual a `-FailedModel`, `session_id` vazio, `execution_started=false` (bool), `assistant_messages=0`, `tool_calls=0` (inteiros). Evidência malformada falha de forma fechada. O chamador fornece a evidência; o helper só valida.
+    - Decisão: `FALLBACK_AUTHORIZED` retorna `next_model`/`next_tier`/`attempt_id`. Sem evidência ⇒ `HOLD_NO_START_PROOF_UNVERIFIED`. Sessão presente ou `execution_started` ⇒ `HOLD_AMBIGUOUS_EXECUTION` (`EXECUTION_MAY_HAVE_STARTED`). Evidência divergente/malformada/inválida ⇒ `HOLD_AMBIGUOUS_EXECUTION` (`NO_START_PROOF_INVALID`/hold de falha inválida). Falha inelegível (auth/contexto/timeout/`EXECUTION_UNKNOWN`, etc.) ⇒ `HOLD_TERMINAL` (`FAILURE_NOT_ELIGIBLE`). `sessionID` presente sempre HOLD (sem duplicar execução).
+    - Continuidade: o Planner faz um novo dispatch nativo `subagent` com `next_model` na mesma Task e registra a sessão filha com `model-fallback.ps1 -Action record` e `task-kernel -Action model-attempt`. `record` é separado de `model_attempts` do Kernel.
+  - **Limitação do plugin V2 2.3.0:** expõe apenas `tool.execute.before` (sem `result`/`error` e sem `sessionID` de criança), portanto automação completa no plugin não é possível; o fluxo é mediado pelo Planner. Não criar controlador/executor paralelo nem `opencode run`.
+  - Taxonomia `OrchestrationProviderError` (exatamente 8 classes): `RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, `PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID`, `EXECUTION_UNKNOWN`. `RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE` e `PROVIDER_UNAVAILABLE` só são elegíveis a fallback com prova observada de não-início. `PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID` e `EXECUTION_UNKNOWN` não autorizam fallback. Os triggers legados `MODEL_ERROR`, `SERVICE_UNAVAILABLE` e `OFFLINE` são mapeados para essas classes; não fazem parte da taxonomia atual.
+  - **Evidência nativa registrada (limitada):** `evidence/mission-2026-11-13/fallback-t1-proof.json` e `fallback-t2-proof.json` — dispatch nativo → erro `tool.execution` sem sessão filha → decisão → novo `subagent` → sessão filha com `observed_model` correto (T1 MiMo `094d08b2ceee4855a4cfa0074987a959`, T2 DeepSeek `2e47d6c042cb436babfb20e46139299d`); `evidence/mission-2026-11-13/native-override-2.3.0.json` comprova override de modelo em 2.3.0. **Limitação:** o primário falho foi `openai/does-not-exist` (sintético), não falha real 429/quota/503 de Luna; 429/quota/503 têm apenas cobertura sintética de testes. Cadeias medidas: coder complex T3 Sonnet → Terra → DeepSeek Go → Muse; reviewer high T3 Sonnet → Terra; security-reviewer critical e architect high T3 Sonnet → Terra. Opus → Sol é candidato de policy coberto por testes, sem transição real; Astra não executado.
 - Implementacao nativa atual: o Planner e a propria sessao `build` (raiz do run), com
   modelo primario `opencode-go/deepseek-v4.1-flash` definido por `build.model` no `opencode.json`
   (template: `{{MODEL_PLANNER}}`); o modelo global permanece DeepSeek Go. Workers sao subagents
@@ -114,21 +120,38 @@ histórica, sem efeito).
   canônicos de `claude-agent/sonnet` conforme policy). Opus→Astra via `task-kernel model-select` somente com
   prova `RequiredTier T4` válida da mesma tarefa (que exige T3 + Opus falhos
   persistidos; checagem T4 priorizada antes da T3 de head, sem apagar o
-  histórico). Sem prova T4, Opus somente com T3 válida; sem T3, nunca T4. Astra desabilitada ou fora de
+   histórico). Sem prova T4, Opus somente com T3 válida; sem T3, nunca T4. Astra desabilitada ou fora de
   `eligible_roles` ⇒ sem Astra (fail closed sem bypass); Fable permanece HOLD sem prova específica do modelo. Recibos/bools arbitrários (`T3FailureVerified`,
   `T3FailureReceipt`, `VerifiedFailureReceipt`), `FailureCount` e risco nunca
-  autorizam T4/Astra/Fable. Candidatos técnicos (incluindo Opus→Sol) permanecem HOLD. Rota Planner-mediada: `task-kernel model-select`
+   autorizam T4/Astra/Fable. Opus→Sol continua candidato de política e não tem transição real provada. Rota Planner-mediada: `task-kernel model-select`
   (somente leitura; retorna `tier` + `model` no formato `providerID/modelID`
   — `claude-agent/opus` em T3 válida, `openai/gpt-6-astra` em T4 válida posterior — + `policy_hash` + refs
   da prova) → Planner informa `model` verbatim na propriedade `model` da
   ferramenta nativa `subagent` → refs `session:<child>` + `message:<assistant>`
   → `task-kernel verify-run` → `model-attempt` → `model-proof`. A CLI nunca
-  cria sessões. Binding produtivo PARTIAL (G1): as primitivas funcionam em runtime real (model-select, NativeDispatch com subagent.model, model-attempt, model-proof), mas a integração automática do fluxo completo (model-select → dispatch → attempt → proof → decisão) depende de comandos manuais do Planner e não está comprovada como automática. Evidência 2026-11-10: T3 dispatch real (subagente com model=claude-agent/sonnet retornou T3_DISPATCH_OK model=claude-sonnet-5-5); model-attempt registrado (attempt_n=1, model=claude-agent/sonnet, tier=T3, parent_session_id, message_id, policy_hash); model-proof verificou corretamente (PROOF_VERIFICATION_MISSING quando não há prova de falha). O fluxo manual das primitivas está comprovado; a integração automática produtiva ainda precisa ser demonstrada. Status: PARTIAL — primitivas validadas, integração automática pendente. Prova do override `subagent.model` é só do servidor OpenCode
+  cria sessões. **Registro histórico de 2026-11-10:** binding produtivo PARTIAL (G1): as primitivas funcionam em runtime real (model-select, NativeDispatch com subagent.model, model-attempt, model-proof), mas a integração automática do fluxo completo (model-select → dispatch → attempt → proof → decisão) depende de comandos manuais do Planner e não está comprovada como automática. Evidência 2026-11-10: T3 dispatch real (subagente com model=claude-agent/sonnet retornou T3_DISPATCH_OK model=claude-sonnet-5-5); model-attempt registrado (attempt_n=1, model=claude-agent/sonnet, tier=T3, parent_session_id, message_id, policy_hash); model-proof verificou corretamente (PROOF_VERIFICATION_MISSING quando não há prova de falha). O fluxo manual das primitivas está comprovado; a integração automática produtiva ainda precisa ser demonstrada. Status naquele snapshot: PARTIAL — primitivas validadas, integração automática pendente. Prova do override `subagent.model` é só do servidor OpenCode
   local vivo: `native_model_override_proven=true` somente quando a versão
   viva de `opencode api get /api/info` está exatamente na allowlist
-  `2.2.5`/`2.2.6`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
+  `2.2.5`/`2.2.6`/`2.3.0`/`2.0.23`; `runtime.profile`/`runtime.version` da task são
   metadados de observabilidade informados pelo caller e nunca autorizam;
   API viva desconhecida/indisponível falha fechada com `model` em branco.
+  **Prova G1/T4 real (2026-11-13):** a sessão T3 Sonnet teve falha funcional
+  controlada por prompt e `verify-run` kernel-executed falhou; o `model-proof`
+  T3 foi `ok=true` (`modelproof:proof-g1-20261113:T3:2:9`,
+  `sha256:df06d9f728227a510c890f2e9d55ac58f663ad752fd69b3588c7daa6afa77c8e`).
+  `model-select` escolheu Opus T4 com essa prova, Opus executou, o Debugger
+  forneceu nova evidência, `verify-run` resultou em `verified_pass`, review
+  aprovado e a Task chegou a DONE rev. 18. A falha T3 foi induzida pelo prompt,
+  não demonstra incapacidade natural; Astra não foi executado. Detalhes em
+  `evidence/mission-2026-11-13/g1-t4-done-proof.json`. Este T4 foi escalonamento
+  por prova kernel-owned, não fallback de disponibilidade.
+  **Allowlist atual:** PR #244 adicionou OpenCode 2.3.0 à verificação do
+  override nativo com evidência exata; NativeProof passou 42/42. A evidência e
+  escopo live-server-only estão em
+  `evidence/mission-2026-11-13/native-override-2.3.0.json`. A nota anterior
+  desta missão de que 2.3.0 estava fora da allowlist descreve o estado antes
+  dessa mudança. A allowlist é independente do pin; o pin canônico agora é 2.3.0
+  (bump em 2026-11-13), sujeito ao CI no binário exato antes do merge.
   Suposição residual: o `/api/info` local alcança o mesmo servidor que
   recebe a chamada `subagent` subsequente (sem binding de sessão/dispatch
   provado). `DIRECT_VERIFIED` é só via classificador (leitura/planejamento
@@ -662,3 +685,5 @@ registrada em gate-closure, conforme as seções de Controlled Routing.
 ### Evidência de testes (observada)
 - `test-package-consistency` 16/16; `OrchestrationModelRouterMatrix` 35/35; `OrchestrationModelRouter` 107/107; V14 60/60; `OrchestrationModelRouterHaikuPlanner` 52/52 (nome legada; suíte mantém semântica alias+HOLD); `OrchestrationModelRouterModelConfig` 36/36; Kernel `OrchestrationTaskKernelModelProof` 104/104; `OrchestrationModelExecution` 36/36; `OrchestrationModelRouterKernelProof` 7/7.
 - Estes valores são estado/evidência atual; não afirmar que todos rodaram contra o `head` final integrado a menos que o código esteja inalterado — revalidação final pendente. Teste de matriz determinístico reporta ordem candidata mas não faz dispatch. `AGENTS.md` continua não reconciliado por conflito de proveniência (config ativa ajustada antes; agora direcionada para `build` Luna; root Luna igual; backups/rollback em `~/.config/opencode/reconciliation-backups/`; sem restauração whole-file).
+
+  A evidência 2.3.0 é live-server-only e independente do pin. O pin canônico de source/registry/runtime-versions.json agora é 2.3.0 (bump em 2026-11-13); smoke de lifecycle/CI no binário exato deve ficar verde antes do merge.

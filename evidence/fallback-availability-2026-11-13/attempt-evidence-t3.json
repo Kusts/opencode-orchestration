@@ -1,0 +1,9 @@
+{
+  "source": "provider",
+  "stage": "pre_dispatch",
+  "session_id": "",
+  "execution_started": false,
+  "assistant_messages": 0,
+  "tool_calls": 0,
+  "note": "Template/example only. Replace with evidence captured from the actual native dispatch error; this file is not provider availability evidence."
+}

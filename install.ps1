@@ -14,6 +14,8 @@
      merge estrutural preservador (user-owned intacto). Explicito vence (sem
      probe, sem conflito); -Runtime Auto segue o probe (V1 ou V2); ambiguo
      aborta com exit 6.
+     Com Agent Config: texto global pertence ao Agent Config; os 19 perfis
+     worker e o bloco agents do opencode.json pertencem a Orquestracao.
      Phase 7 (V3.1): -Runtime Both ATIVO via perfis isolados por
      XDG_CONFIG_HOME (~/.opencode-orchestration/profiles/{v1,v2}), com prova
      de isolamento em runtime (fail-closed exit 6 sem prova) e wrappers
@@ -38,7 +40,8 @@
       sem rede): o bundle e autocontido; validacao da dependency no CI.
     - Exit codes: 0 ok; 3 falha de precheck (nada escrito); 4 CAS_CONFLICT
       (aborta SEM rollback, nada aplicado); 5 falha no apply (rollback
-      tentado).
+      tentado); 8 = VALIDATION_FAILED (validacao pos-install; rollback
+      executado; manifest anterior preservado).
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -51,9 +54,11 @@ param(
   [string]$BinaryV1 = '',
   [string]$BinaryV2 = '',
   [switch]$ProvisionRuntime,
+  [switch]$Clean,
   [Parameter(DontShow)]
-  [ValidateSet('backup', 'stage', 'cas', 'apply-half', 'apply-json', 'manifest')]
+  [ValidateSet('backup', 'stage', 'cas', 'apply-half', 'apply-json', 'apply-last', 'manifest')]
   [string]$InjectFailureAfter = '',
+  [Parameter(DontShow)][ValidateSet('plugin','planner','profiles','router','skills','config','instructions')][string]$InjectValidationFault = '',
   # O7.1/O7.2: bundle import modes (default Off). Shadow = report-only.
   # Canary = report + per-agent comparison vs desired snapshots (no active
   # writes beyond the normal install). Active = permissions sourced from the
@@ -63,6 +68,82 @@ param(
   [ValidateSet('Off', 'Shadow', 'Canary', 'Active')]
   [string]$BundleMode = 'Off'
 )
+
+function Get-InstallResultSummary($Plan) {
+  $counts = [ordered]@{ installed = 0; unchanged = 0; preserved = 0; conflict = 0; failed = 0 }
+  foreach ($entry in @($Plan)) {
+    if ($entry -match '^\[?(CREATE|UPDATE)\]?') { $counts.installed++ }
+    elseif ($entry -match '^\[?SKIP\]?|^\[?REMOVE\]?') { $counts.unchanged++ }
+    elseif ($entry -match '^\[?PRESERVE\]?') { $counts.preserved++ }
+  }
+  return $counts
+}
+
+function Invoke-InstallValidation {
+  $states = [ordered]@{ plugin='PASS'; planner='PASS'; profiles='PASS'; router='PASS'; skills='PASS'; config='PASS'; instructions='PASS' }
+  $conflicts = @()
+  $agentConfig = $mergedObj.agent
+  $profileHeader = '(?m)^permission:'
+  if ($IsV2) { $agentConfig = $mergedObj.agents; $profileHeader = '(?m)^permissions:' }
+  if (-not [string]::IsNullOrWhiteSpace($InjectValidationFault)) { $conflicts += ($InjectValidationFault + ': injected (test-only)') }
+  $pluginFull = $pluginDst
+  if (-not (Test-Path -LiteralPath $pluginFull -PathType Leaf) -or ((Get-Item -LiteralPath $pluginFull -ErrorAction SilentlyContinue).Length -le 0)) { $conflicts += 'plugin: ausente ou vazio' }
+  elseif (Get-Command node -ErrorAction SilentlyContinue) {
+    $nodeCheckFile = Join-Path $env:TEMP ('orchestration-plugin-' + [guid]::NewGuid().ToString('N') + '.mjs')
+    try {
+      Copy-Item -LiteralPath $pluginFull -Destination $nodeCheckFile -Force
+      $savedErrorActionPreference = $ErrorActionPreference
+      try {
+        $ErrorActionPreference = 'Continue'
+        & node --check $nodeCheckFile 2>&1 | Out-Null
+        $nodeExitCode = $LASTEXITCODE
+      }
+      finally { $ErrorActionPreference = $savedErrorActionPreference }
+      if ($nodeExitCode -ne 0) { $conflicts += 'plugin: node --check falhou' }
+    }
+    finally { if (Test-Path -LiteralPath $nodeCheckFile) { Remove-Item -LiteralPath $nodeCheckFile -Force -ErrorAction SilentlyContinue } }
+  } else { $states.plugin = 'NOT_VERIFIED' }
+  if ($IsV2) {
+    if (($null -eq $agentConfig.build) -or [string]::IsNullOrWhiteSpace([string]$agentConfig.build.model) -or ($agentConfig.build.permissions -isnot [array]) -or (@($agentConfig.build.permissions).Count -lt 1)) { $conflicts += 'planner: build ausente ou incompleto' }
+  } elseif (($null -eq $agentConfig.build) -or [string]::IsNullOrWhiteSpace([string]$agentConfig.build.model) -or ($null -eq $agentConfig.build.permission)) { $conflicts += 'planner: build ausente ou incompleto' }
+  $profilePaths = @(Get-ChildItem -LiteralPath (Join-Path $ocDir 'agents') -Filter '*.md' -File -ErrorAction SilentlyContinue)
+  $actualIds = @($profilePaths | ForEach-Object BaseName | Sort-Object)
+  $expectedIds = @($agentFiles | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) } | Sort-Object)
+  $actualExpectedIds = @($actualIds | Where-Object { $expectedIds -contains $_ })
+  if (($actualExpectedIds.Count -ne 19) -or (($actualExpectedIds -join ',') -cne ($expectedIds -join ','))) { $conflicts += 'profiles: conjunto canonical nao corresponde aos 19 perfis esperados' }
+  foreach ($pf in $profilePaths) { if ($expectedIds -contains $pf.BaseName) { $txt = Read-Utf8 $pf.FullName; if (($txt -notmatch $profileHeader) -or ($txt -match '\{\{')) { $conflicts += ('profiles: invalido ' + $pf.Name) } } }
+  if ($IsV2) {
+    if ($agentConfig.build.model -cne $modelPlanner) { $conflicts += 'router: agents.build.model divergente' }
+    foreach ($af in $agentFiles) { $id = [IO.Path]::GetFileNameWithoutExtension($af.Name); if ([string]::IsNullOrWhiteSpace([string]$agentConfig.$id.mode) -or [string]::IsNullOrWhiteSpace([string]$agentConfig.$id.model)) { $conflicts += ('router: agents.' + $id + ' sem mode/model') } }
+  } else {
+    if ($agentConfig.build.model -cne $modelPlanner) { $conflicts += 'router: agent.build.model divergente' }
+    foreach ($af in $agentFiles) { $id = [IO.Path]::GetFileNameWithoutExtension($af.Name); if ((Has-Member $agentConfig $id) -and [string]::IsNullOrWhiteSpace([string]$agentConfig.$id.model)) { $conflicts += ('router: agent.' + $id + ' sem model') } }
+  }
+  foreach ($s in $skillNames) {
+    $skillEntry = Join-Path $ocDir ('skills\' + $s + '\SKILL.md')
+    if (-not (Test-Path -LiteralPath $skillEntry -PathType Leaf)) {
+      if (@($script:sharedSkillNames) -contains $s) { $conflicts += ('skills: junction compartilhada quebrada ou SKILL.md inacessivel ' + $s) }
+      else { $conflicts += ('skills: ausente ' + $s) }
+    }
+  }
+  try { $installedCfg = (Read-Utf8 (Join-Path $ocDir $configFileName)) | ConvertFrom-Json -ErrorAction Stop; if ($IsV2) { if ($installedCfg.experimental.subagent_depth -ne 1) { $conflicts += 'config: experimental.subagent_depth diferente de 1' } } elseif ($installedCfg.subagent_depth -ne 1) { $conflicts += 'config: subagent_depth diferente de 1' } } catch { $conflicts += ('config: JSON invalido: ' + $_.Exception.Message) }
+  $instructions = Read-Utf8 (Join-Path $ocDir 'AGENTS.md')
+  $globalStart = [regex]::Matches($instructions, [regex]::Escape('<!-- agent-config:global:start -->')).Count; $globalEnd = [regex]::Matches($instructions, [regex]::Escape('<!-- agent-config:global:end -->')).Count
+  $orchStart = [regex]::Matches($instructions, [regex]::Escape('<!-- opencode-orchestration:start -->')).Count; $orchEnd = [regex]::Matches($instructions, [regex]::Escape('<!-- opencode-orchestration:end -->')).Count
+  if ($ConfigOwnsGlobal -and (-not $ConfigContentInLegacyMarker)) { if (($globalStart -ne 1) -or ($globalEnd -ne 1) -or ($orchStart -ne 0) -or ($orchEnd -ne 0)) { $conflicts += 'instructions: marcadores ownership invalidos' } }
+  elseif (-not $ConfigOwnsGlobal) { if (($orchStart -ne 1) -or ($orchEnd -ne 1)) { $conflicts += 'instructions: marcador orchestration invalido' } }
+  foreach ($c in $conflicts) { $component = ([string]$c -split ':',2)[0]; if ($states.Contains($component)) { $states[$component] = 'CONFLICT' } }
+  return [ordered]@{ States=$states; Conflicts=@($conflicts) }
+}
+
+if ($Clean -and ($Runtime -eq 'V1' -or $Runtime -eq 'Both')) {
+  Write-Host '[CLEAN] -Clean e suportado somente em V2 (V1 frozen); nenhuma escrita realizada.' -ForegroundColor Red
+  exit 2
+}
+if ($Clean -and $NoCoreSkills) {
+  Write-Host '[CLEAN] -Clean exige core skills; -NoCoreSkills nao e permitido. Nenhuma escrita realizada.' -ForegroundColor Red
+  exit 2
+}
 
 # O7.1 early usage validation (before ANY write).
 if ((($BundleMode -ieq 'Shadow') -or ($BundleMode -ieq 'Canary') -or ($BundleMode -ieq 'Active')) -and ([string]::IsNullOrWhiteSpace($BundlePath))) {
@@ -96,6 +177,7 @@ $ErrorActionPreference = 'Stop'
 # 'apply-half' (falha no meio do apply -> rollback, exit 5),
 # 'apply-json' (falha APOS escrever o config — opencode.json ou opencode.jsonc,
 # ultima etapa -> rollback, exit 5),
+# 'apply-last' (falha depois da ultima operacao -> rollback, exit 5),
 # 'manifest' (falha na gravaÃ§Ã£o do manifest -> rollback completo, exit 5).
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $PSScriptRoot }
@@ -159,7 +241,15 @@ function Read-Utf8([string]$Path) {
 
 function Get-FileHashSafe([string]$Path) {
   if (Test-Path -LiteralPath $Path -PathType Leaf) {
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+      $stream = [IO.File]::OpenRead($Path)
+      try {
+        return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '')
+      }
+      finally { $stream.Dispose() }
+    }
+    finally { $sha.Dispose() }
   }
   return $null
 }
@@ -424,6 +514,17 @@ function Assert-NoReparseUnder([string]$Root, [string]$Leaf, [string]$What) {
   }
 }
 
+function Test-PathHasReparsePoint([string]$Root, [string]$Leaf) {
+  $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+  $cur = [IO.Path]::GetFullPath($Leaf)
+  while ($cur.StartsWith($rootFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    $item = Get-Item -LiteralPath $cur -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item -and (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) { return $true }
+    $cur = Split-Path -Parent $cur
+  }
+  return $false
+}
+
 function Restore-FileAtomicBytes([string]$BackupPath, [string]$DstPath) {
   # Restaura os BYTES exatos do backup (sem normalizacao de EOL). Um arquivo
   # pre-existente pode estar em CRLF: restaura-lo via texto mudaria seus
@@ -466,6 +567,49 @@ function Merge-ManagedAgentsMdBlock([string]$ExistingOrNull, [string]$Content, [
   }
   $candidate = $ExistingOrNull.TrimEnd() + "`n`n" + $block.TrimEnd() + "`n"
   return @{ Text = $candidate; Action = 'UPDATE' }
+}
+
+function Remove-LegacyOrchestrationBlock([string]$Text) {
+  if ($null -eq $Text) {
+    return @{ Text = $Text; Removed = $false; RemovedBlock = $false; RemovedBanner = $false }
+  }
+  $Text = $Text -replace "`r`n", "`n" -replace "`r", "`n"
+  $banner = (($header -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd("`n")) + "`n"
+  $removedBlock = $false
+  $removedBanner = $false
+  $startBannerPattern = '^(?:\n)*' + [regex]::Escape($banner) + '(?:\n)*'
+  $mBanner = [regex]::Match($Text, $startBannerPattern)
+  if ($mBanner.Success) {
+    $Text = $Text.Substring($mBanner.Length)
+    $removedBanner = $true
+  }
+  while ($true) {
+    $start = $Text.IndexOf($MarkStart, [StringComparison]::Ordinal)
+    if ($start -lt 0) { break }
+    $endAt = $Text.IndexOf($MarkEnd, $start, [StringComparison]::Ordinal)
+    if ($endAt -lt 0) { break }
+    $end = $endAt + $MarkEnd.Length
+    $prefix = $Text.Substring(0, $start)
+    $bannerAt = $prefix.LastIndexOf('<!-- GENERATED FILE: direct edits will be overwritten. -->', [StringComparison]::Ordinal)
+    if ($bannerAt -ge 0) {
+      $between = $prefix.Substring($bannerAt)
+      $bannerPattern = '^' + [regex]::Escape($banner).Replace('\n', '\n(?:\n)*') + '$'
+      if ($between -cmatch $bannerPattern) {
+        $prefix = $prefix.Substring(0, $bannerAt)
+        $removedBanner = $true
+      }
+    }
+    $suffix = $Text.Substring($end)
+    $prefix = $prefix.TrimEnd("`n")
+    $suffix = $suffix.TrimStart("`n")
+    if (($prefix.Length -gt 0) -and ($suffix.Length -gt 0)) { $Text = $prefix + "`n`n" + $suffix }
+    elseif ($prefix.Length -gt 0) { $Text = $prefix + "`n" }
+    else { $Text = $suffix }
+    $removedBlock = $true
+  }
+  if ((-not $removedBlock) -and (-not $removedBanner)) { return @{ Text = $Text; Removed = $false; RemovedBlock = $false; RemovedBanner = $false } }
+  $Text = ($Text -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd("`n") + "`n"
+  return @{ Text = $Text; Removed = $true; RemovedBlock = $removedBlock; RemovedBanner = $removedBanner }
 }
 
 function Set-PropIfDifferent($Obj, [string]$Name, $Value) {
@@ -715,7 +859,7 @@ function Validate-Models([string]$ModelsPath, [string]$Root = '') {
     }
   }
   if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Values = $null } }
-  $defaultFree = 'opencode-go/iceman-contributor-free'
+  $defaultFree = 'openai/gpt-6-luna'
   if (-not [string]::IsNullOrWhiteSpace($Root)) {
     $defaultFree = Get-DefaultFreeModel $Root
   }
@@ -740,7 +884,7 @@ function Get-DefaultFreeModel([string]$Root) {
     }
   }
   catch { }
-  return 'opencode-go/iceman-contributor-free'
+  return 'openai/gpt-6-luna'
 }
 
 function Get-RequiredTemplatesForRuntime([string]$RuntimeId) {
@@ -791,7 +935,7 @@ function Validate-AgentDefinitions([string]$Root) {
   return @{ Ok = $true; Errors = @() }
 }
 
-function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'opencode-go/iceman-contributor-free') {
+function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna') {
   $errs = @()
   $tmplPath = Join-Path $Root 'templates\opencode.v1.json.tmpl'
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
@@ -826,7 +970,7 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
   return @{ Ok = $true; Errors = @(); Desired = $desired }
 }
 
-function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'opencode-go/iceman-contributor-free') {
+function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna') {
   # Espelho V2 de Validate-Template: shape nativo (agents/permissions/
   # experimental.subagent_depth), 21 blocos agents (build + title + 15
   # subagents explicitos + 4 planning), build.model isolado por MODEL_PLANNER,
@@ -1157,7 +1301,7 @@ if ($runtimeMode -eq 'Both') {
     }
     if ($missingBoth.Count -gt 0) {
       # Com -ProvisionRuntime: cria os perfis provisionando e prova o
-      # isolamento com os binarios provisionados (falha de rede => exit 7).
+      # isolamento com os binarios provisionados (falha de rede => codigo 7).
       $infoB1 = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $BothProfileRoot -RuntimeId 'opencode-v1' -ProvisionRuntime
       $infoB2 = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $BothProfileRoot -RuntimeId 'opencode-v2' -ProvisionRuntime
       $candV1 = $infoB1.BinaryPath
@@ -1339,6 +1483,10 @@ $modelFree = $modelsRes.Values.free
 
 # Runtime ja resolvido no precheck (V31-R3 F3); aqui so deriva o fluxo.
 $IsV2 = ([string]$runtimeDecision.RuntimeId -eq 'opencode-v2')
+if ($Clean -and (-not $IsV2)) {
+  Write-Host '[CLEAN] -Clean e suportado somente em V2 (V1 frozen); nenhuma escrita realizada.' -ForegroundColor Red
+  exit 2
+}
 $RuntimeId = 'opencode-v1'
 $RuntimeGeneration = 1
 $RuntimeProfile = 'v1'
@@ -1362,6 +1510,20 @@ if (Test-Path -LiteralPath $agentsTargetPath -PathType Leaf) { $existingAgentsMd
 # The installer then writes NO global text, NO agents/*.md editable forks, or
 # worker agents.* profiles (Config canonical). Standalone mode keeps snapshots.
 $ConfigOwnsGlobal = (($null -ne $existingAgentsMd) -and ($existingAgentsMd -match '<!-- agent-config:global:start -->') -and ($existingAgentsMd -match '<!-- agent-config:global:end -->'))
+$ConfigContentInLegacyMarker = $false
+$LegacyConfigContent = $null
+if (($null -ne $existingAgentsMd) -and (-not $ConfigOwnsGlobal)) {
+  $legacyMatch = [regex]::Match($existingAgentsMd, '(?s)<!-- opencode-orchestration:start -->(.*?)<!-- opencode-orchestration:end -->')
+  if ($legacyMatch.Success) {
+    $legacyBody = $legacyMatch.Groups[1].Value
+    if (($legacyBody -match 'source/;\s*regenerate with .*render-agent-config\.ps1') -or (($legacyBody -match '<!-- agent-config:global:start -->') -and ($legacyBody -match '<!-- agent-config:global:end -->'))) {
+      $ConfigOwnsGlobal = $true
+      $ConfigContentInLegacyMarker = $true
+      $LegacyConfigContent = $legacyBody
+      Write-Host '[OWNER] AGENTS.md: conteúdo do Agent Config sob marcador legado preservado; rode o reconciliador do Agent Config para migrar os marcadores.' -ForegroundColor Yellow
+    }
+  }
+}
 if ($ConfigOwnsGlobal) {
   Write-Host '[install] Config owner detectado: texto global e perfis worker agents.* NAO serao escritos.' -ForegroundColor Cyan
 }
@@ -1426,6 +1588,14 @@ $adapterBody = Read-Utf8 (Join-Path $RepoRoot $adapterRel)
 $agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.TrimEnd()).TrimEnd() + "`n") $modelPlanner $modelCheap $modelStrong $modelFree $TargetHome $RepoRoot
 
 $agentsMdRes = Merge-ManagedAgentsMdBlock $existingAgentsMd $agentsContent $header
+$retiredBlock = $false
+$retiredOrchestrationBanner = $false
+if ($ConfigOwnsGlobal -and (-not $ConfigContentInLegacyMarker) -and ($null -ne $existingAgentsMd)) {
+  $retireResult = Remove-LegacyOrchestrationBlock $existingAgentsMd
+  $retiredBlock = [bool]$retireResult.RemovedBlock
+  $retiredOrchestrationBanner = [bool]$retireResult.RemovedBanner
+  if ($retireResult.Removed) { $agentsMdRes = @{ Text = $retireResult.Text; Action = 'RETIRE' } }
+}
 
 $repoEsc = $RepoRoot.Replace('\', '\\')
 $agentFiles = @()
@@ -1461,8 +1631,8 @@ if ($IsV2) {
     $bodyV2 = $bodyV2.Replace('{{HOME}}', ($TargetHome -replace '\\', '/'))
     $fullV2 = ('---' + "`n" + $fmText + "`n" + '---' + "`n" + $bodyV2)
     $noNl = ($fullV2 -replace "`r`n", "`n" -replace "`r", "`n")
-    $clean = Remove-OrchestrationBlock ($noNl -split "`n")
-    $agentFiles += @{ Name = $f.Name; Text = ($clean.TrimEnd() + "`n") }
+    $cleanAgentText = Remove-OrchestrationBlock ($noNl -split "`n")
+    $agentFiles += @{ Name = $f.Name; Text = ($cleanAgentText.TrimEnd() + "`n") }
   }
 }
 else {
@@ -1475,8 +1645,8 @@ foreach ($f in @(Get-ChildItem -File (Join-Path $RepoRoot 'source\agents\*.md') 
   $raw = $raw.Replace('{{REPO_DIR}}', $repoEsc)
   $raw = $raw.Replace('{{HOME}}', ($TargetHome -replace '\\', '/'))
   $noNl = ($raw -replace "`r`n", "`n" -replace "`r", "`n")
-  $clean = Remove-OrchestrationBlock ($noNl -split "`n")
-  $agentFiles += @{ Name = $f.Name; Text = ($clean.TrimEnd() + "`n") }
+   $cleanAgentText = Remove-OrchestrationBlock ($noNl -split "`n")
+   $agentFiles += @{ Name = $f.Name; Text = ($cleanAgentText.TrimEnd() + "`n") }
 }
 }
 
@@ -1527,28 +1697,14 @@ $managedPaths = @()
 # consumers; o pacote nao adota mais nenhuma chave (ownership trim).
 $adoptedNow = @()
 if ($null -eq $existingJsonObj) {
-  if ($ConfigOwnsGlobal -and $IsV2) {
-    $mergedObj = (($desired | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
-    if (($null -ne $mergedObj) -and (Has-Member $mergedObj 'agents') -and ($null -ne $mergedObj.agents)) {
-      foreach ($ak in @($mergedObj.agents.PSObject.Properties.Name)) {
-        if (($ak -ne 'build') -and ($ak -ne 'title')) { Remove-Prop $mergedObj.agents $ak; continue }
-        Remove-Prop $mergedObj.agents.$ak 'permissions'
-      }
-    }
-  }
-  else {
-    $mergedObj = $desired
-  }
+  $mergedObj = $desired
   if ($IsV2) { $managedPaths = @(Get-DesiredManagedPathsV2 $desired) }
   else { $managedPaths = @(Get-DesiredManagedPaths $desired) }
-  if ($ConfigOwnsGlobal -and $IsV2) {
-    $managedPaths = @($managedPaths | Where-Object { ($_ -notmatch '\.permissions$') -and ($_ -notmatch '^agents\.(?!build\.|title\.)') })
-  }
 }
 else {
   $clone = (Strip-JsoncComments $existingJsonRaw) | ConvertFrom-Json
   if ($IsV2) {
-    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired -SkipPermissions:$ConfigOwnsGlobal -SkipWorkerProfiles:$ConfigOwnsGlobal
+    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired
     $mergedObj = $mergeRes.Config
     $managedPaths = @($mergeRes.ManagedPaths)
   }
@@ -1565,18 +1721,22 @@ $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 # SourcePath na fonte canonica, StagePath e DestinationPath derivados por
 # Join-Path a partir do RelativePath (nunca por Substring de FullName).
 $ops = New-Object System.Collections.ArrayList
-if ($ConfigOwnsGlobal) {
-  Write-Host '[install] SKIP agents-md/agents: dono agent-config (sem fork editavel; snapshot nao instalado).' -ForegroundColor Cyan
+$sharedSkillNames = New-Object System.Collections.ArrayList
+if ($ConfigOwnsGlobal -and (-not ($retiredBlock -or $retiredOrchestrationBanner))) {
+  Write-Host '[install] SKIP agents-md: texto global pertence ao agent-config.' -ForegroundColor Cyan
 }
 else {
   [void]$ops.Add(@{ Component = 'agents-md'; RelativePath = 'AGENTS.md'; StageText = $agentsMdRes.Text; Label = 'AGENTS.md' })
-  foreach ($a in $agentFiles) {
-    [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
-  }
+}
+foreach ($a in $agentFiles) {
+  [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
     $skillSrcDir = Join-Path $skillsSrc $s
+    $skillDst = Join-Path (Join-Path $ocDir 'skills') $s
+    $sharedSkill = Test-PathHasReparsePoint -Root (Join-Path $ocDir 'skills') -Leaf $skillDst
+    if ($sharedSkill) { [void]$sharedSkillNames.Add($s); continue }
     foreach ($sf in @(Get-ManagedSourceFiles $skillSrcDir)) {
       if (-not (Test-ManagedRelativePath $sf.RelativePath)) {
         throw ('relative path invalido na fonte da skill: ' + $sf.RelativePath)
@@ -1599,12 +1759,101 @@ $configRelPath = $configFileName
 $configLabel = $configFileName
 [void]$ops.Add(@{ Component = 'config'; RelativePath = $configRelPath; StageText = $mergedText; Label = $configLabel })
 
+# Read prior ownership evidence before any transaction writes.
+$priorManifestPath = Join-Path $TargetHome '.opencode-orchestration\manifest.json'
+$priorManifest = $null
+if (Test-Path -LiteralPath $priorManifestPath -PathType Leaf) {
+  try { $priorManifest = [IO.File]::ReadAllText($priorManifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json } catch { $priorManifest = $null }
+}
+$cleanRemoved = New-Object System.Collections.ArrayList
+$cleanPreserved = New-Object System.Collections.ArrayList
+$cleanConfigConflicts = New-Object System.Collections.ArrayList
+$cleanFileOps = New-Object System.Collections.ArrayList
+if ($Clean -and ($null -eq $priorManifest)) { Write-Host '[CLEAN] nenhum manifest anterior; instalacao normal' -ForegroundColor Cyan }
+if ($Clean -and ($null -ne $priorManifest) -and (Has-Member $priorManifest 'managed_files')) {
+  $desiredSet = @{}; foreach ($op in $ops) { $desiredSet[[string]$op.RelativePath] = $true }
+  foreach ($oldFile in @($priorManifest.managed_files)) {
+    $rel = [string]$oldFile.relative
+    if ($desiredSet.ContainsKey($rel)) { continue }
+    $safeType = (($rel -match '^agents\\[^\\]+\.md$') -or ($rel -match '^skills\\.+') -or ($rel -ceq ('plugins\' + $pluginBundleName)))
+    if (-not $safeType -or -not (Test-ManagedRelativePath $rel)) { [void]$cleanPreserved.Add($rel); continue }
+    $dst = [IO.Path]::GetFullPath((Join-Path $ocDir $rel))
+    if ((Test-PathHasReparsePoint -Root (Join-Path $ocDir 'skills') -Leaf $dst) -and ($rel -match '^skills\\')) { [void]$cleanPreserved.Add($rel); continue }
+    try { Assert-PathUnder $dst $ocDir 'clean destination'; Assert-NoReparseUnder $ocDir $dst 'clean destination' }
+    catch { [void]$cleanPreserved.Add($rel); continue }
+    if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) { continue }
+    $expected = ([string]$oldFile.sha256).ToLowerInvariant(); $actual = (Get-FileHashSafe $dst).ToLowerInvariant()
+    if ($expected -ne $actual) { [void]$cleanPreserved.Add($rel); continue }
+    [void]$cleanFileOps.Add(@{ Component='clean-remove'; RelativePath=$rel; DestinationPath=$dst; Label=($rel -replace '\\','/'); Remove=$true; ExpectedHash=$expected })
+    [void]$cleanRemoved.Add($rel)
+  }
+  foreach ($mp in @($priorManifest.managed_config_paths)) {
+    $path = [string]$mp
+    if ($managedPaths -contains $path) { continue }
+    if (($path -notmatch '^agents\.[^.]+\.(mode|model|permissions)$') -and ($path -cne 'experimental.subagent_depth')) { continue }
+    $parts = $path -split '\.'; $node = $mergedObj; $ok = $true
+    foreach ($part in $parts) { if ($null -ne $node -and (Has-Member $node $part)) { $node = $node.$part } else { $ok = $false; break } }
+    $snap = $null
+    if ((Has-Member $priorManifest 'config_snapshot') -and (Has-Member $priorManifest.config_snapshot $path)) { $snap = [string]$priorManifest.config_snapshot.$path }
+    if ($ok -and ($null -ne $snap) -and ((Convert-Canonical $node) -ceq $snap)) {
+      $parent = $mergedObj; for ($i=0; $i -lt ($parts.Count - 1); $i++) { $parent = $parent.($parts[$i]) }
+      if ($null -ne $parent.PSObject.Properties[$parts[-1]]) { $null = $parent.PSObject.Properties.Remove($parts[-1]) }
+    } elseif ($ok) { [void]$cleanConfigConflicts.Add($path) }
+  }
+  $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
+  foreach ($configOpClean in $ops) { if ($configOpClean.Component -eq 'config') { $configOpClean.StageText = $mergedText } }
+  foreach ($cop in $cleanFileOps) { [void]$ops.Add($cop) }
+}
+$staleSkillFiles = New-Object System.Collections.ArrayList
+if ((-not $NoCoreSkills) -and ($null -ne $priorManifest) -and (Has-Member $priorManifest 'managed_files')) {
+  $willWrite = @{}
+  foreach ($op in $ops) { $willWrite[[string]$op.RelativePath] = $true }
+  $seenStalePaths = @{}
+  $skillsRootCanonical = [IO.Path]::GetFullPath((Join-Path $ocDir 'skills')).TrimEnd('\')
+  foreach ($mf in @($priorManifest.managed_files)) {
+    $rel = [string]$mf.relative
+    if (($rel -notmatch '^skills\\') -or $willWrite.ContainsKey($rel)) { continue }
+    if (-not (Test-ManagedRelativePath $rel)) {
+      [void]$staleSkillFiles.Add(@{ RelativePath = $rel; Label = ($rel -replace '\\', '/'); Preserve = $true; PreserveReason = 'path inválido; mantido' })
+      continue
+    }
+    $dst = [IO.Path]::GetFullPath((Join-Path $ocDir $rel))
+    try { Assert-PathUnder $dst $skillsRootCanonical 'stale managed skill' }
+    catch {
+      [void]$staleSkillFiles.Add(@{ RelativePath = $rel; Label = ($rel -replace '\\', '/'); Preserve = $true; PreserveReason = 'fora de skills; mantido' })
+      continue
+    }
+    if ($seenStalePaths.ContainsKey($dst)) { continue }
+    $seenStalePaths[$dst] = $true
+    if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) { continue }
+    $dstItem = Get-Item -LiteralPath $dst -Force
+    if (($dstItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      [void]$staleSkillFiles.Add(@{ RelativePath = $rel; Label = ($rel -replace '\\', '/'); Preserve = $true; PreserveReason = 'reparse point; mantido' })
+      continue
+    }
+    try { Assert-NoReparseUnder $ocDir $dst 'stale skill' }
+    catch {
+      [void]$staleSkillFiles.Add(@{ RelativePath = $rel; Label = ($rel -replace '\\', '/'); Preserve = $true; PreserveReason = 'reparse point; mantido' })
+      continue
+    }
+    $actual = Get-FileHashSafe $dst
+    $expectedPrior = ([string]$mf.sha256).ToLowerInvariant()
+    if ($actual.ToLowerInvariant() -ceq $expectedPrior) {
+      [void]$staleSkillFiles.Add(@{ RelativePath = $rel; DestinationPath = $dst; Label = ($rel -replace '\\', '/'); Component = 'stale-skill'; Remove = $true; ExpectedHash = $expectedPrior })
+    }
+    else { [void]$staleSkillFiles.Add(@{ RelativePath = $rel; Label = ($rel -replace '\\', '/'); Preserve = $true; PreserveReason = 'modificado pelo usuário; mantido' }) }
+  }
+}
+
 foreach ($op in $ops) {
   $dstOp = Join-Path $ocDir $op.RelativePath
   Assert-PathUnder $dstOp $ocDir ('destino de ' + $op.Label)
-  Assert-NoReparseUnder $ocDir $dstOp ('destino de ' + $op.Label)
+  if (($op.Component -ne 'skills') -or (-not (Test-PathHasReparsePoint -Root (Join-Path $ocDir 'skills') -Leaf $dstOp))) {
+    Assert-NoReparseUnder $ocDir $dstOp ('destino de ' + $op.Label)
+  }
   $op.DestinationPath = $dstOp
 }
+foreach ($op in $staleSkillFiles) { if (-not $op.Preserve) { [void]$ops.Add($op) } }
 # Junction na PROPRIA raiz gerenciada = redirecionamento deliberado do
 # usuario (ex.: .config em outro drive); nao e bloqueado, mas e sinalizado.
 if (Test-Path -LiteralPath $ocDir -PathType Container) {
@@ -1628,19 +1877,26 @@ function File-Plan([string]$Dst, [string]$DesiredText, [string]$Label) {
   else { Add-Plan 'UPDATE' $Label }
 }
 if ($ConfigOwnsGlobal) {
-  Add-Plan 'SKIP' 'AGENTS.md (dono agent-config:global; texto global nao aplicado)'
-  foreach ($a in $agentFiles) {
-    Add-Plan 'SKIP' (('agents/' + $a.Name) + ' (dono agent-config; sem fork editavel)')
-  }
+  if ($ConfigContentInLegacyMarker) { Add-Plan 'SKIP' 'AGENTS.md (conteúdo do Agent Config sob marcador legado; preservado)' }
+  elseif ($retiredBlock -or $retiredOrchestrationBanner) { Add-Plan 'RETIRE' 'AGENTS.md (banner/bloco legado da Orquestração retirado; texto global é do agent-config)' }
+  else { Add-Plan 'SKIP' 'AGENTS.md (dono agent-config:global; texto global nao aplicado)' }
 }
 else {
   File-Plan $agentsTargetPath $agentsMdRes.Text 'AGENTS.md (bloco markered)'
-  foreach ($a in $agentFiles) {
-    File-Plan (Join-Path $ocDir ('agents\' + $a.Name)) $a.Text ('agents/' + $a.Name)
-  }
+}
+foreach ($a in $agentFiles) { File-Plan (Join-Path $ocDir ('agents\' + $a.Name)) $a.Text ('agents/' + $a.Name) }
+foreach ($stale in $staleSkillFiles) {
+  if ($stale.Preserve) { Add-Plan 'PRESERVE' ($stale.Label + ' (' + $stale.PreserveReason + ')') }
+  else { Add-Plan 'REMOVE' ($stale.Label + ' (obsoleto: ausente da fonte; hash confere)') }
+}
+if ($Clean) {
+  foreach ($rel in $cleanRemoved) { Add-Plan 'REMOVE' (($rel -replace '\\','/') + ' (obsoleto: comprovado pelo manifest)') }
+  foreach ($rel in $cleanPreserved) { Add-Plan 'PRESERVE' (($rel -replace '\\','/') + ' (modificado pelo usuario; mantido)') }
+  foreach ($rel in $cleanConfigConflicts) { Add-Plan 'PRESERVE' ($rel + ' (CONFLICT: valor divergente; mantido)') }
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
+    if (@($sharedSkillNames) -contains $s) { Add-Plan 'PRESERVE' ('skills/' + $s + '/ (junction; skills compartilhadas do agent-config)'); continue }
     # Comparacao normalizada (EOL) entre fonte canonica e destino: o installer
     # grava LF deliberadamente, entao conteudo equivalente com EOL diferente
     # NAO e divergencia. Idempotencia: tudo igual => SKIP.
@@ -1807,13 +2063,18 @@ if ($WhatIfPreference) { $isWhatIf = $true }
 if ($isWhatIf) {
   Write-Host '=== INSTALL PLAN (WhatIf, nenhuma escrita) ===' -ForegroundColor Cyan
   foreach ($l in $plan) { Write-Host $l -ForegroundColor DarkGray }
+  $whatIfSummary = Get-InstallResultSummary $plan
+  Write-Host ('RESULT: INSTALLED={0} UNCHANGED={1} PRESERVED={2} CONFLICT=0 FAILED=0' -f $whatIfSummary.installed, $whatIfSummary.unchanged, $whatIfSummary.preserved)
   Write-Host ('Plano: ' + $plan.Count + ' recurso(s). Nenhuma escrita realizada.') -ForegroundColor Cyan
   exit 0
 }
 
 # Hashes esperados (PRECHECK) para CAS ------------------------------------------
 $expectedHashes = @{}
-foreach ($op in $ops) { $expectedHashes[$op.DestinationPath] = Get-FileHashSafe $op.DestinationPath }
+foreach ($op in $ops) {
+  if ($op.ContainsKey('Remove') -and $op.Remove) { $expectedHashes[$op.DestinationPath] = $op.ExpectedHash }
+  else { $expectedHashes[$op.DestinationPath] = Get-FileHashSafe $op.DestinationPath }
+}
 
 # Backup -----------------------------------------------------------------------
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -1858,7 +2119,8 @@ try {
       $op.StagePath = $stageOp
       $parentOp = Split-Path -Parent $stageOp
       if (-not (Test-Path -LiteralPath $parentOp)) { New-Item -ItemType Directory -Path $parentOp -Force | Out-Null }
-      if ($op.ContainsKey('StageText')) { Write-FileAtomic $stageOp $op.StageText }
+      if ($op.ContainsKey('Remove') -and $op.Remove) { continue }
+      elseif ($op.ContainsKey('StageText')) { Write-FileAtomic $stageOp $op.StageText }
       else { Write-FileAtomic $stageOp (Read-Utf8 $op.SourcePath) }
     }
 
@@ -1875,7 +2137,12 @@ try {
       $stAgents = Read-Utf8 $stageAgentsPath
       $cStart = ([regex]::Matches($stAgents, [regex]::Escape($MarkStart))).Count
       $cEnd = ([regex]::Matches($stAgents, [regex]::Escape($MarkEnd))).Count
-      if (($cStart -ne 1) -or ($cEnd -ne 1)) { $stageErrs += ('stage AGENTS.md markers invalidos (start=' + $cStart + ' end=' + $cEnd + ').') }
+      if ($ConfigOwnsGlobal) {
+        $cfgS = ([regex]::Matches($stAgents, [regex]::Escape('<!-- agent-config:global:start -->'))).Count
+        $cfgE = ([regex]::Matches($stAgents, [regex]::Escape('<!-- agent-config:global:end -->'))).Count
+        if (($cStart -ne 0) -or ($cEnd -ne 0) -or ($cfgS -ne 1) -or ($cfgE -ne 1)) { $stageErrs += 'stage AGENTS.md markers Config-owned invalidos.' }
+      }
+      elseif (($cStart -ne 1) -or ($cEnd -ne 1)) { $stageErrs += ('stage AGENTS.md markers invalidos (start=' + $cStart + ' end=' + $cEnd + ').') }
     }
     elseif (-not $ConfigOwnsGlobal) {
       $stageErrs += 'stage AGENTS.md ausente sem Config owner (fail-closed).'
@@ -1892,7 +2159,7 @@ try {
     foreach ($op in $ops) {
       $now = Get-FileHashSafe $op.DestinationPath
       $exp = $expectedHashes[$op.DestinationPath]
-      if ($exp -ne $now) { $conflicts += $op.DestinationPath }
+      if ([string]$exp -and ([string]$exp).ToLowerInvariant() -ne ([string]$now).ToLowerInvariant()) { $conflicts += $op.DestinationPath }
     }
     if ($InjectFailureAfter -eq 'cas') { $conflicts += 'INJECTED_CAS_CONFLICT (test-only)' }
     if ($conflicts.Count -gt 0) {
@@ -1948,7 +2215,14 @@ try {
         [void]$applied.Add(@{ Dst = $op.DestinationPath; Src = $op.StagePath; Label = $op.Label; Existed = $existedBefore; OrigHash = $origHash; Mode = 'pending' })
         $rec = $applied[$applied.Count - 1]
         if ($PSCmdlet.ShouldProcess($op.DestinationPath, 'Apply ' + $op.Label)) {
-          Write-FileAtomic $op.DestinationPath (Read-Utf8 $op.StagePath)
+          if ($op.ContainsKey('Remove') -and $op.Remove) { Remove-Item -LiteralPath $op.DestinationPath -Force }
+          else { Write-FileAtomic $op.DestinationPath (Read-Utf8 $op.StagePath) }
+        }
+        if ($op.ContainsKey('Remove') -and $op.Remove) {
+          $rec.Mode = 'removed'
+          if (($InjectFailureAfter -eq 'apply-half') -and ($idx -eq $halfPoint)) { throw 'INJECTED_FAILURE_AFTER=apply-half (test-only)' }
+          if (($InjectFailureAfter -eq 'apply-last') -and ($idx -eq $ops.Count)) { throw 'INJECTED_FAILURE_AFTER=apply-last (test-only)' }
+          continue
         }
         $rec.Mode = $script:LastWriteMode
         $hSrc = (Get-FileHash -LiteralPath $op.StagePath -Algorithm SHA256).Hash
@@ -1964,6 +2238,7 @@ try {
         if (($InjectFailureAfter -eq 'apply-json') -and ($op.Component -eq 'config')) {
           throw 'INJECTED_FAILURE_AFTER=apply-json (test-only)'
         }
+        if (($InjectFailureAfter -eq 'apply-last') -and ($idx -eq $ops.Count)) { throw 'INJECTED_FAILURE_AFTER=apply-last (test-only)' }
       }
     }
     catch {
@@ -1975,7 +2250,7 @@ try {
         try {
           if ($rec.Existed -and $backupMap.ContainsKey($rec.Dst)) {
             Restore-FileAtomicBytes $backupMap[$rec.Dst] $rec.Dst
-            if (($null -ne $rec.OrigHash) -and ((Get-FileHashSafe $rec.Dst) -ne $rec.OrigHash)) {
+            if (($null -ne $rec.OrigHash) -and ((Get-FileHashSafe $rec.Dst).ToLowerInvariant() -ne ([string]$rec.OrigHash).ToLowerInvariant())) {
               $failedRestore += $rec.Dst
             }
           }
@@ -2056,6 +2331,8 @@ try {
     try {
       $managedFiles = New-Object System.Collections.ArrayList
       foreach ($op in $ops) {
+        if ($op.ContainsKey('Remove') -and $op.Remove) { continue }
+        if ($ConfigOwnsGlobal -and ($op.Component -eq 'agents-md')) { continue }
         [void]$managedFiles.Add(@{ relative = $op.RelativePath; sha256 = (Get-FileHashSafe $op.DestinationPath) })
       }
     $rev = 'unknown'
@@ -2074,10 +2351,6 @@ try {
     $snapshotPaths = @()
     if ($IsV2) { $snapshotPaths = @(Get-DesiredManagedPathsV2 $desired) }
     else { $snapshotPaths = @(Get-DesiredManagedPaths $desired) }
-    if ($ConfigOwnsGlobal -and $IsV2) {
-      $snapshotPaths = @($snapshotPaths | Where-Object { $_ -notmatch '\.permissions$' })
-      $snapshotPaths = @($snapshotPaths | Where-Object { $_ -notmatch '^agents\.(?!build\.|title\.)' })
-    }
     foreach ($mp in $snapshotPaths) {
       try {
         if ($mp -eq 'agent.build.model=ABSENT') { $snapshot[$mp] = 'ABSENT'; continue }
@@ -2189,6 +2462,23 @@ try {
       }
       Write-Host ('[bundle-canary] ' + $bLoadC.Code + ' match=' + $matchC.Count + ' divergent=' + $divC.Count) -ForegroundColor Cyan
     }
+    $instructionsContract = 'UNKNOWN'
+    if ($ConfigOwnsGlobal) {
+      $cfgBlockText = $null
+      $cfgBlockMatch = [regex]::Match([string]$existingAgentsMd, '(?s)<!-- agent-config:global:start -->(.*?)<!-- agent-config:global:end -->')
+      if ($cfgBlockMatch.Success) { $cfgBlockText = $cfgBlockMatch.Groups[1].Value }
+      elseif ($ConfigContentInLegacyMarker) { $cfgBlockText = $LegacyConfigContent }
+      if ($null -ne $cfgBlockText) {
+        if ($cfgBlockText -match 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK') { $instructionsContract = 'STALE' }
+        elseif (($cfgBlockText -match 'SINGLE_WORKER') -and ($cfgBlockText -match '(?is)write.{0,100}worker|worker.{0,100}write|escrita.{0,100}worker')) { $instructionsContract = 'CURRENT' }
+      }
+    }
+    $retiredBlockRecords = @()
+    if ($retiredBlock) { $retiredBlockRecords += 'opencode-orchestration' }
+    if ($retiredOrchestrationBanner) { $retiredBlockRecords += 'opencode-orchestration-banner' }
+    $validation = Invoke-InstallValidation
+    if (@($validation.Conflicts).Count -gt 0) { throw ('VALIDATION_FAILED: ' + (@($validation.Conflicts) -join '; ')) }
+    $resultSummary = Get-InstallResultSummary $plan
     $manifest = [ordered]@{
       package_version = $PackageVersion
       installed_at = (Get-Date).ToString('o')
@@ -2199,8 +2489,21 @@ try {
       bundle_canary = $bundleCanary
       bundle_active = $bundleActive
       config_ownership = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
-      skipped_namespaces = $(if ($ConfigOwnsGlobal) { @('AGENTS.md:global', 'agents/*.md profiles', 'opencode.json:agents.worker-profiles') } else { @() })
-      snapshot_provenance = $(if ($ConfigOwnsGlobal) { 'consumer-shadow (no editable fork installed)' } else { 'SNAPSHOT_COMPAT (generated copies; not editable sources)' })
+      skipped_namespaces = $(if ($ConfigOwnsGlobal) { @('AGENTS.md:global', 'opencode.json:permissions') } else { @() })
+      snapshot_provenance = $(if ($ConfigOwnsGlobal) { 'orchestration-canonical (profiles installed)' } else { 'SNAPSHOT_COMPAT (generated copies; not editable sources)' })
+      ownership = [ordered]@{
+        global_text = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
+        worker_profiles = $(if ($ConfigOwnsGlobal) { 'orchestration' } else { 'orchestration-snapshot' })
+        build_profile_model = 'orchestration'
+        build_permissions = $(if ($ConfigOwnsGlobal) { 'orchestration' } else { 'orchestration-snapshot' })
+        skills = 'orchestration'
+        shared_skills = @($sharedSkillNames)
+        plugin = 'orchestration'
+        top_level_permissions = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
+      }
+      retired_blocks = @($retiredBlockRecords)
+      removed_stale = @($staleSkillFiles | Where-Object { -not $_.Preserve } | ForEach-Object { @{ relative = $_.RelativePath; sha256 = $_.ExpectedHash } })
+      instructions_contract = $instructionsContract
       managed_files = @($managedFiles)
       managed_config_paths = @($managedPaths)
       adopted_paths = @($adoptedUnion)
@@ -2208,7 +2511,10 @@ try {
       config_snapshot = $snapshot
       models = [ordered]@{ planner = $modelPlanner; cheap = $modelCheap; strong = $modelStrong; free = $modelFree }
       plugin_dependency = $OpenCodePluginSpec
+      validation = [ordered]@{ plugin=$validation.States.plugin; planner=$validation.States.planner; profiles=$validation.States.profiles; router=$validation.States.router; skills=$validation.States.skills; config=$validation.States.config; instructions=$validation.States.instructions; functional_delegation='NOT_RUN' }
     }
+    if ($Clean) { $manifest['clean'] = @{ requested = $true; removed = @($cleanRemoved); preserved = @($cleanPreserved) + @($cleanConfigConflicts) } }
+    if ($manifest.instructions_contract -eq 'STALE') { Write-Host ('[WARN] Instructions do Agent Config estão obsoletas; execute scripts/reconcile-agent-config' + '.ps1 -Component Instructions -Runtime OpenCode.') -ForegroundColor Yellow }
     if ($PSCmdlet.ShouldProcess($manifestPath, 'Escrever manifest')) {
       if ($InjectFailureAfter -eq 'manifest') { throw 'INJECTED_FAILURE_AFTER=manifest (test-only)' }
       $mp2 = Split-Path -Parent $manifestPath
@@ -2223,6 +2529,26 @@ try {
         if ($null -eq $mCheck2) { throw 'manifest divergente (non_atomic_fallback)' }
       }
     }
+    Write-Host ('RESULT: INSTALLED={0} UNCHANGED={1} PRESERVED={2} CONFLICT=0 FAILED=0' -f $resultSummary.installed, $resultSummary.unchanged, $resultSummary.preserved)
+    Write-Host ('[STATE] agents ' + $validation.States.profiles)
+    Write-Host ('[STATE] config ' + $validation.States.config)
+    Write-Host ('[STATE] plugin ' + $validation.States.plugin)
+    Write-Host ('[STATE] skills ' + $validation.States.skills)
+    Write-Host ('[STATE] AGENTS.md ' + $validation.States.instructions)
+    # Remove only now-empty directories descended from manifest-proven stale skill paths.
+    $skillsRoot = [IO.Path]::GetFullPath((Join-Path $ocDir 'skills')).TrimEnd('\')
+    $coveredDirs = @($staleSkillFiles | Where-Object { -not $_.Preserve } | ForEach-Object { Split-Path -Parent $_.DestinationPath })
+    $seenDirs = @{}
+    foreach ($staleDir in $coveredDirs) {
+      $staleDir = [IO.Path]::GetFullPath($staleDir)
+      while ($staleDir.StartsWith($skillsRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $staleDir -PathType Container)) {
+        $itemsLeft = @(Get-ChildItem -LiteralPath $staleDir -Force -ErrorAction SilentlyContinue)
+        if ($itemsLeft.Count -gt 0) { break }
+        Remove-Item -LiteralPath $staleDir -Force
+        $seenDirs[$staleDir] = $true
+        $staleDir = Split-Path -Parent $staleDir
+      }
+    }
     }
     catch {
       $mErr = $_.Exception.Message
@@ -2233,7 +2559,7 @@ try {
         try {
           if ($rec.Existed -and $backupMap.ContainsKey($rec.Dst)) {
             Restore-FileAtomicBytes $backupMap[$rec.Dst] $rec.Dst
-            if (($null -ne $rec.OrigHash) -and ((Get-FileHashSafe $rec.Dst) -ne $rec.OrigHash)) {
+            if (($null -ne $rec.OrigHash) -and ((Get-FileHashSafe $rec.Dst).ToLowerInvariant() -ne ([string]$rec.OrigHash).ToLowerInvariant())) {
               $failedRestore += $rec.Dst
             }
           }
@@ -2305,6 +2631,11 @@ try {
         Write-Output 'ROLLBACK_REQUIRED'
         foreach ($f in $failedRestore) { Write-Output ('  nao restaurado: ' + $f) }
       }
+      if ($mErr.StartsWith('VALIDATION_FAILED')) {
+        $failedSummary = Get-InstallResultSummary $plan
+        Write-Host ('RESULT: INSTALLED=0 UNCHANGED={0} PRESERVED={1} CONFLICT={2} FAILED=0' -f $failedSummary.unchanged, $failedSummary.preserved, @($validation.Conflicts).Count)
+      }
+      if ($mErr.StartsWith('VALIDATION_FAILED')) { exit 8 }
       exit 5
     }
   }

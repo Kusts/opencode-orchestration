@@ -1,0 +1,9 @@
+{
+  "source": "tool_error",
+  "stage": "pre_dispatch",
+  "session_id": "",
+  "execution_started": false,
+  "assistant_messages": 0,
+  "tool_calls": 0,
+  "observation_note": "Derived from observed subagent tool.execution response with no sessionID and no work started."
+}

@@ -1,0 +1,17 @@
+{
+  "error": {
+    "type": "tool.execution",
+    "message": "Model \"claude-agent/sonnet-availability-probe-nonexistent\" is not available. Use the models tool to see what is available."
+  },
+  "content": [],
+  "observed_at": "2026-11-14T01:23:44.7318527Z",
+  "source_tool": "subagent",
+  "requested_model": "claude-agent/sonnet-availability-probe-nonexistent",
+  "parent_session": "",
+  "session_id": null,
+  "execution_started": false,
+  "assistant_messages": 0,
+  "tool_calls": 0,
+  "observed_at_local": "2026-11-13",
+  "observation_note": "Client-side model lookup/unlisted model failure before execution; not evidence of provider HTTP 429/503."
+}

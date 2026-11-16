@@ -9,15 +9,16 @@
 
 Nota sobre o runtime: **OpenCode V1.x** (`1.18.34`) permanece
 **LEGACY_FROZEN** para perfis existentes; novas capacidades miram apenas o
-**OpenCode V2** (`@opencode/cli`, pin atual `2.2.6` em
-`source/registry/runtime-versions.json`; smoke explícito do ciclo de serviço passou, mas provas de capacidades nativas específicas seguem em HOLD). O pacote inclui render/config
+**OpenCode V2** (`@opencode/cli`, pin atual `2.3.0` em
+`source/registry/runtime-versions.json`; o smoke explícito do ciclo no binário exato 2.3.0 será reexecutado no CI e a certificação depende dele; provas de capacidades nativas específicas seguem em HOLD). O pacote inclui render/config
 nativos por geração e plugin dual-runtime. O enforcement V2 usa as permissões nativas ordenadas
 (last-match-wins, broad-first); a camada `experimental.policies` (hard-deny)
 ainda não está ativada. V1 e V2 lado a lado só via perfis isolados
 (`-Runtime Both`) — nunca compartilhando o mesmo config nativo.
 
-No V2.2.6, o runtime permite acesso a diretórios externos por padrão quando
-nenhuma regra `external_directory` se aplica. Este pacote não define essa regra;
+Observação histórica no V2.2.6: o runtime permitia acesso a diretórios externos
+por padrão quando nenhuma regra `external_directory` se aplicava. Esse comportamento
+no V2.3.0 ainda não foi re-testado. Este pacote não define essa regra;
 veja [docs/PERMISSIONS.md](docs/PERMISSIONS.md) e o dono da configuração ativa.
 
 ## Resumo da política
@@ -40,6 +41,14 @@ veja [docs/PERMISSIONS.md](docs/PERMISSIONS.md) e o dono da configuração ativa
 - **CI sem segredos**: nenhuma ação além de `actions/checkout`; testes
   usam canários sintéticos (ex. `sk-SYNTHETICSECRET`), nunca credenciais
   reais.
+- **Ressalvas de autoridade/enforcement (auditoria 2026-11-12, #50/#141):**
+  "runtime-enforced" refere-se à rota de tool — a superfície REST
+  `/api/session/{id}/shell` não passa por tool permission (observado em 2.0.23)
+  e não deve ser assumida como deny; grants do Kernel são registro/decisão, não
+  enforcement de runtime enquanto `runtime_grant_enforcement` (v1/v2) estiver OFF;
+  a precedência topo vs agente (last-match-wins) não foi provada no binário exato.
+  Detalhes e limitações em
+  [docs/specs/AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md](docs/specs/AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md).
 
 Detalhes normativos em [docs/SECURITY.md](docs/SECURITY.md) (boundaries,
 credenciais, regras de produção, telemetria, limitações do runtime).

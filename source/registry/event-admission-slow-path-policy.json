@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "policy_version": "1",
+  "enabled": false,
+  "min_confidence": 0.7,
+  "max_summary_chars": 500,
+  "max_rationale_chars": 500,
+  "max_requests_per_day": 0,
+  "max_requests_per_thread": 0,
+  "classes": ["candidate", "context_only", "ignore"]
+}

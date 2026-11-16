@@ -28,7 +28,7 @@ function Assert-HP([bool]$Condition, [string]$Name) {
 
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-HP ($p.Status -eq 'POLICY_LOADED') 'hp-policy-loads'
-Assert-HP ($p.PolicyVersion -eq '1.4.0') 'hp-policy-stays-v1.4'
+Assert-HP ($p.PolicyVersion -eq '1.5.0') 'hp-policy-stays-v1.5'
 $pol = $p.Policy
 
 # 1. Provider registration (single catalog).

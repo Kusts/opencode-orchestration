@@ -6,8 +6,8 @@
   "planner": "opencode-go/deepseek-v4.1-flash",
   // T2: primary Luna; alternativas DeepSeek Go->Muse->Haiku (mesmo tier; exaustao de transporte nunca sobe de tier).
   "cheap": "openai/gpt-6-luna",
-  // T1: Iceman; fallback opencode/mimo-v2.6-flash-free.
-  "free": "opencode-go/iceman-contributor-free",
+  // T1: Luna; fallback opencode/mimo-v2.6-flash-free.
+  "free": "openai/gpt-6-luna",
   // T3: alias Sonnet (claude-agent/sonnet; nome de catalogo Sonnet 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Fallback tecnico Terra.
   "strong": "claude-agent/sonnet",
   // T4: alias Opus (claude-agent/opus; nome de catalogo Opus 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Transporte mesmo tier Opus->Sol; candidatas T2 degradadas DeepSeek Go->Muse apenas audit-only HOLD para papeis admissiveis a T2 (sem retry); Astra/Fable excepcionais e proof-gated, nunca automaticos.

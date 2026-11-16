@@ -1,0 +1,143 @@
+# Mission Consolidation & Fallback — SPEC (2026-11-13)
+
+## Objective and scope
+
+Reconcile documentation and backlog against current code, and consolidate the model policy/fallback route without duplicating execution mechanisms. The mission spans: (1) documentation/backlog; (2) model policy/quota; (3) PRs #238/#239/#240 consolidation; (4) error normalization and T1 fallback; (5) Orchestration/Agent Config/`-Clean` integration; (6) cache/skills; (7) T2–T4 routing.
+
+## Principles and ownership
+
+Reuse the existing Model Router, Task Kernel, and OpenCode native dispatch. Do not add a controller, executor, registry, or feature flag. Classification of an error is not proof that execution did not start; retry/fallback requires independent, kernel-accepted proof of non-start.
+
+| Owner | Owned surface |
+|---|---|
+| Orchestration | 19 worker profiles (`agents/*.md`), `agents` block (mode/model/scoped permissions), enforcement plugin, `skills-core` |
+| Agent Config | global `AGENTS.md` text, top-level permissions, MCP, shared skills, other runtimes |
+| Operator | `models.jsonc`, credentials and live user configuration |
+
+## Step 4 decision: productive T1 fallback
+
+Fallback must use the native `subagent` tool to create a child session. Error
+classification alone is not proof of non-start. The observed native
+`tool.execution` error for an unavailable model, with no `sessionID` or child
+session, is evidence of non-start for that attempt. Do not implement a parallel
+executor through `opencode run` or another CLI route. The Task Kernel remains
+the owner of `model-attempt` and `model-proof`; no-start evidence does not bypass
+those gates.
+
+Observed T1 fallback evidence: `model-fallback.ps1 -Action next` classified
+the unavailable synthetic model as `MODEL_UNAVAILABLE`, observed no child
+session, and authorized the ordered same-tier MiMo candidate. Planner then
+dispatched native `subagent` MiMo; it succeeded and was recorded with
+`model-fallback.ps1 -Action record` as `post_dispatch`. Helper suites passed
+39/39, 70/70 and 8/8 in Windows PowerShell 5.1 and pwsh. This is
+Planner-mediated, not automatic. The failed primary was synthetic
+`openai/does-not-exist`, not a real Luna 429; 429/quota/503 coverage is
+synthetic-test-only.
+
+## Measurement status
+
+- Step 2: **DONE** for policy/quota and bounded native model observations;
+  installed live-config reconciliation remains Step 5.
+- Step 4: **DONE for measured T1/T2 fallbacks** - normalized error, observed
+  no-start, authorized decisions, native MiMo/DeepSeek Go success and attempt
+  records. Both were Planner-mediated, not automatic.
+- Step 5: **DONE** - Agent Config PR #51 (`54f3b9c`) fixes the
+  `Substring`/`ArgumentOutOfRange` bug near line 886 using trimmed
+  `$lineText`. The fixed preview exited 0; Instructions applied against the
+  canonical `C:\Users\walis\agent-config` root; Settings applied with
+  `-Force`; previews converged; post-sync install WhatIf reported zero drift.
+  `OpenCodeSettingsReconciler` passed 36/36. Full evidence is in
+  `evidence/mission-2026-11-13/agent-config-sync-2026-11-13.json`. The PR
+  remains open. PS5.1 suite was 91/95 with four pre-existing failures
+  (baseline 87/91); pwsh was 95/95.
+- Step 6: **DONE** for measurement; decisão registrada sem repetir experimento caro. Evidências existentes: `evidence/skill-ab-2026-11-13/comparison.json` (Luna `openai/gpt-6-luna` T2, runtime 2.3.0, mesma tarefa/perfil/escopo, `verified_pass`/DONE em A e B, n=1, ordem A→B não randomizada, `cost_observed=false`, custo/busy não observados). Arm A (com `verification-before-completion`, 1 skill): 3.815 input / 231.680 cache-read / 498 output / 21 reasoning / 7 mensagens. Arm B (sem `verification-before-completion`, mas com `ai-memory-retrieval` e `systematic-debugging`, 2 skills): 19.741 input / 448.256 cache-read / 784 output / 194 reasoning / 11 mensagens (~5,2× input e ~1,9× cache-read vs A). `evidence/abba-2026-11-13/comparison.json` (ABBA, n=2 por braço, mesmo modelo/máquina, procedimento-piloto) observou médias A 3.655 input / 269.312 cache-read / 25.606,5 ms e B 2.772,5 input / 218.112 cache-read / 22.172 ms, com amplitudes/ranges relevantes, contaminação cruzada em b1 (`control_valid=true` apenas como ausência de `skill` calls em B, não bloqueio mecânico), possível carryover de aprendizado/cache e custo não observado (`0` com `cost_observed=false`). `docs/specs/SKILL-BENCH-JOURNEY-2026-11-13.md` registra invocação `completed` com `executed=false` em jornada DONE n=1 não randomizada — evidência de registro, não de uso/benefício.
+  **Decisão cache (#11, PARTIAL):** manter a telemetria de cache existente; NÃO adicionar otimização de cache agora. #11 permanece PARTIAL porque custo/cache provider-neutral e custo-to-DONE ajustado por cache não estão observáveis (`cost_observed=false`); leituras de cache foram observadas, mas os critérios restantes de aceitação continuam abertos.
+  **Decisão skills (#64, PARTIAL):** manter o carregamento nativo de skills (catálogo + invocação sob demanda); NÃO construir plataforma/flag de descoberta seletiva; `skill_routing` permanece OFF. O corpo da skill custa um round-trip quando carregada; lazy loading nativo já evita preload dos corpos (~228k tokens estimados em um lote medido; corpo de `verification-before-completion` ~2.184 bytes/~546 tokens estimados, diferença observada dominada por reenvio/cache, não pelo corpo). #64 permanece PARTIAL: comparação observacional (n=1 no A/B principal; ABBA piloto com contaminação), sem inferência causal; o braço com skill teve menos tokens no A/B principal, mas a diferença não prova benefício nem generaliza, e ABBA não sustenta conclusão por contaminação/variância.
+  **Interpretação e retomada:** "manter nativo" é decisão baseada em evidência insuficiente para justificar plataforma nova, não prova de que otimização funciona. Critério objetivo para reabrir investimento: repetição com n>=3, ordem randomizada, mesmo modelo/tarefa, custo observável e métrica de qualidade; sem isso, não há base para plataforma nova. Não há claim causal.
+- Step 7: **PARTIAL** - T1 Luna→MiMo and T2 Luna→DeepSeek Go availability
+  fallback decisions/child executions were real. For T2, the failed model was
+  synthetic `openai/does-not-exist`, not a real Luna provider failure.
+  Separately, a real T3→T4 escalation used kernel-owned T3 proof, selected
+  Opus, passed verification/review, and reached **DONE**. The T3 failure was
+  deliberately induced by prompt and is not evidence of natural incapability.
+  T3 availability fallback requested the deliberately nonexistent ID
+  `claude-agent/sonnet-availability-probe-nonexistent`, rejected client-side
+  before execution with no session (not a failure of real Sonnet), then reached
+  `MODEL_UNAVAILABLE` → `FALLBACK_AUTHORIZED`; Terra execution was reported by
+  the operator and recorded with `observed_model=UNKNOWN`. T4 requested
+  deliberately nonexistent ID
+  `claude-agent/opus-availability-probe-nonexistent` (not a failure of real
+  Opus). T4 used
+  kernel-owned proof `modelproof:fallback-avail-t4-20261113:T3:2:7`
+  (digest `sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3`),
+  selected Opus, observed pre-execution rejection, authorized fallback,
+  then operator-reported Sol execution/recording (attempt record
+  `observed_model=UNKNOWN`). Resolver candidates remain audit-only and do not
+  provide automatic authorization. These observations do not prove a real
+  `claude-agent` provider outage or HTTP 429/503. Astra is exceptional/proof-gated
+  and was not executed. DeepSeek Go proof was
+  limited to a trivial, non-sensitive prompt; `sensitive_data_allowed=false`
+  and ZDR is `expired-unconfirmed`.
+
+PR consolidation status: #238/#239/#242/#243/#244 **MERGED**; #240
+**CLOSED → #243**. Master evidence includes `402dbc0`, `f7a233e`,
+`df74e2a`.
+
+PRs #245–#249 are also **MERGED** (`5933b9d`, `693ab07`, `1b9c66b`,
+`fdaa6ae`, `a9c60fa` respectively); see the PLAN triage and Unreleased
+changelog for scope and evidence.
+
+The G1/T4 evidence is recorded in
+`evidence/mission-2026-11-13/g1-t4-done-proof.json`. The controlled fixture
+lives in the separate, ignored proof worktree; Astra was not used and this
+T4 event is a kernel-proof escalation, not availability fallback.
+T3/T4 availability observations are recorded in
+`evidence/fallback-availability-2026-11-13/`; T3 included client-side
+rejection of a deliberately nonexistent requested model before execution, not
+a failure of real Sonnet or a provider outage. T4 likewise rejected a
+deliberately nonexistent requested model, not real Opus. Resolver candidates
+remain audit-only; automatic fallback wiring is not established.
+
+The explicit native `subagent.model` override was empirically observed on
+Luna/MiMo calls. The allowlist accepts 2.2.5/2.2.6/2.0.23/2.3.0 (PR #244).
+The canonical runtime pin remains 2.2.6; bumping it is separate work.
+
+CI V3 suite step timeout is 110 minutes (previously 60), and the three
+containing jobs allow 140 minutes (previously 75). The runner canceled runs
+near 60 minutes although suites took approximately 48–57 minutes.
+
+Step 5 install evidence, including backup, preserved settings, ownership
+manifest and upstream blocker, is recorded in
+`evidence/mission-2026-11-13/install-agent-config-validation.json`.
+The resolved Agent Config fix and converged sync are recorded in
+`evidence/mission-2026-11-13/agent-config-sync-2026-11-13.json`; the earlier
+blocker is retained there as history, not current status.
+
+## Target error taxonomy
+
+Exactly eight implemented classes:
+`RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`,
+`PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID`,
+`EXECUTION_UNKNOWN`.
+
+`RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE` and
+`PROVIDER_UNAVAILABLE` are eligible for fallback only with observed proof of
+non-start. `PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID` and
+`EXECUTION_UNKNOWN` do not authorize fallback. Classification alone and a
+caller-supplied `NoExecutionStarted` value never prove non-start.
+
+Legacy Router triggers `MODEL_ERROR`, `SERVICE_UNAVAILABLE` and `OFFLINE` map
+to the implemented classes; they are not members of this taxonomy.
+
+## Acceptance criteria
+
+- Current docs agree with `model-routing-policy.json` 1.5.0, including Luna T1/T2, Sonnet T3, Opus T4, and DeepSeek Go Planner without automatic fallback.
+- Declared and effective configuration are separately recorded with redacted, secret-free evidence.
+- Fallback cannot be authorized by classification alone; any non-start claim needs independent proof.
+- Backlog states remain partial/pending until evidence supports closure.
+- No execution code, flags, permissions, templates, or canonical policy is changed by this documentation slice.
+
+## Non-goals
+
+No runtime implementation, installation, provider/auth changes, issue/PR closure,
+policy/registry redesign, or claim that blocked model-dependent turns passed.

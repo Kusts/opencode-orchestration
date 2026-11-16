@@ -1,0 +1,78 @@
+{
+  "schema_version": "t1-native-fallback-proof/v1",
+  "observed_at": "2026-11-13T20:00:51.2930569Z",
+  "decision_recorded_at": "2026-11-13T20:00:33.6629381Z",
+  "task_id": "mission-fallback-proof-20261113",
+  "role": "explorer",
+  "primary_attempt": {
+    "model": "openai/does-not-exist",
+    "failure_kind": "synthetic model unavailable",
+    "error": {
+      "type": "tool.execution",
+      "message": "Model \"openai/does-not-exist\" is not available. Use the models tool to see what is available."
+    },
+    "raw_error_json": "{ \"error\": { \"type\": \"tool.execution\", \"message\": \"Model \\\"openai/does-not-exist\\\" is not available. Use the models tool to see what is available.\" } }",
+    "sessionID": null,
+    "child_session_created": false,
+    "classification": "MODEL_UNAVAILABLE",
+    "no_start_proof": true
+  },
+  "decision": {
+    "command": "scripts/v3/model-fallback.ps1 -Action next",
+    "attempt_id": "094d08b2ceee4855a4cfa0074987a959",
+    "status": "FALLBACK_AUTHORIZED",
+    "classification": "MODEL_UNAVAILABLE",
+    "no_start_proof": true,
+    "next_model": "opencode/mimo-v2.6-flash-free",
+    "next_tier": "T1",
+    "reason": "Same-tier ordered candidate ... (audit only). ...",
+    "recorded_at": "2026-11-13T20:00:33.6629381Z"
+  },
+  "fallback_execution": {
+    "tool": "native subagent",
+    "agent": "explorer",
+    "requested_model": "opencode/mimo-v2.6-flash-free",
+    "observed_model": "opencode/mimo-v2.6-flash-free",
+    "providerID": "opencode",
+    "sessionID": "ses_e29808f9dffeyyU67grp62rgFD",
+    "parentSessionID": "ses_e29b0ad23ffeG1hVvNxGf05KYr",
+    "outcome": "succeeded",
+    "usage": {
+      "input": 32712,
+      "output": 3,
+      "reasoning": 17,
+      "cacheRead": 1024,
+      "cost": 0
+    },
+    "started_at": "2026-11-13T20:00:51.2889557Z",
+    "finished_at": "2026-11-13T20:00:51.2930569Z"
+  },
+  "attempt_record": {
+    "command": "scripts/v3/model-fallback.ps1 -Action record",
+    "file": "evidence/mission-2026-11-13/model-attempts.jsonl",
+    "attempt_id": "094d08b2ceee4855a4cfa0074987a959",
+    "stage": "post_dispatch",
+    "success": true,
+    "sessionID": "ses_e29808f9dffeyyU67grp62rgFD",
+    "observed_model": "opencode/mimo-v2.6-flash-free"
+  },
+  "helper_validation": {
+    "test_suites": [
+      "39/39",
+      "70/70",
+      "8/8"
+    ],
+    "runtimes": [
+      "Windows PowerShell 5.1",
+      "pwsh"
+    ],
+    "status": "passed"
+  },
+  "execution_mode": "Planner-mediated via native subagent; not automatic",
+  "limitations": [
+    "The failed primary was the synthetic unavailable model openai/does-not-exist, not a real Luna 429.",
+    "429/quota/503 coverage is synthetic test coverage only.",
+    "OpenCode 2.3.0 is outside Test-OrchestrationNativeModelOverrideProof allowlist (2.2.5, 2.2.6, 2.0.23); explicit subagent.model override was empirically observed on Luna/MiMo, but allowlist was not changed. Human decision/pin remains pending.",
+    "No provider errors or fallback behavior are claimed for real 429/quota/503 events."
+  ]
+}

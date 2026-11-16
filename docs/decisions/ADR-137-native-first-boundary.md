@@ -20,13 +20,18 @@ responsabilidades para o aceite final.
 - A orquestração consome via adaptadores finos (native-preferred / tested-fallback).
 
 ### Agent Config
-- Modelos, agentes e permissões declaradas (owner de configuração global).
+- Dono de texto global (`AGENTS.md`), `permissions` de topo, MCP, skills
+  compartilhadas e demais runtimes.
 - Interop O0–O6 documentada; a orquestração não duplica autoridade declarativa.
 
 ### Orquestração (este repositório)
+- Dona dos 19 perfis worker (`agents/*.md`), bloco `agents` (mode/model/
+  permissions do escopo), plugin de enforcement e `skills-core`.
 - Planejamento, Task/Goal Kernel, ownership, CAS, leases, receipts, verificação e DONE.
 - Invariantes de negócio, evidências, retomada causal e controle de autoridade.
 - Preserva diferenciais (Planner, Kernel, ownership) mesmo quando delega execução ao host.
+
+`models.jsonc` local e credenciais permanecem sob ownership do usuário.
 
 ## Regra de remoção
 

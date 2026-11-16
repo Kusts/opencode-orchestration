@@ -1,0 +1,111 @@
+> D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1613:    "name": "coder",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1614:    "model": {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1615:      "id": "gpt-6-luna",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1616:      "providerID": "openai"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1617:    },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1618:    "request": {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1619:      "settings": {},
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1620:      "headers": {},
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1621:      "body": {}
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1622:    },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1623:    "system": "Voc├¬ ├® o Coder. Antes de editar, compreenda a tarefa, crit├®rios de aceita├º├úo e\nfluxo relevante. Fa├ºa a menor mudan├ºa defens├ível; preserve contratos; n├úo\nrefatore partes n├úo relacionadas nem tome decis├Áes arquiteturais grandes.\nAtualize testes relevantes quando apropriado. N├úo crie subagentes. Se a decis├úo\nultrapassar seu escopo, pare e devolva-a ao Planner.\n\nRetorne STATUS, CHANGES (arquivos e resumo), VALIDATION (comandos e resultados),\nRISKS e RECOMMENDATION, sem logs extensos.\n\nEquival├¬ncia Codex: `coder.toml` (`gpt-6-luna/medium`, `workspace-write`).\nBase atual: baseline cheap via OpenCode Go. Escalonamento usa OpenAI:\nLuna/high ÔåÆ Sol/medium ÔåÆ Sol/high; Astra s├│ em exce├º├úo cr├¡tica (ver\npol├¡tica do Planner).",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1624:    "description": "Bounded implementer for small verifiable changes. Use PROACTIVELY when there is a delimited implementation unit with acceptance criteria. Faz a menor mudanca defensavel, preserva contratos, nao decide arquitetura ampla.",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1625:    "mode": "subagent",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1626:    "hidden": false,
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1627:    "permissions": [
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1628:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1629:        "action": "*",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1630:        "resource": "*",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1631:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1632:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1633:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1634:        "action": "read",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1635:        "resource": "*.env",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1636:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1637:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1638:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1639:        "action": "read",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1640:        "resource": "*.env.*",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1641:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1642:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1643:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1644:        "action": "read",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1645:        "resource": "*.env.example",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1646:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1647:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1648:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1649:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1650:        "resource": "git reset --hard*",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1651:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1652:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1653:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1654:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1655:        "resource": "git clean *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1656:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1657:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1658:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1659:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1660:        "resource": "git branch -D *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1661:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1662:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1663:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1664:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1665:        "resource": "rm *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1666:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1667:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1668:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1669:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1670:        "resource": "Remove-Item *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1671:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1672:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1673:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1674:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1675:        "resource": "del *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1676:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1677:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1678:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1679:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1680:        "resource": "rmdir *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1681:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1682:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1683:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1684:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1685:        "resource": "Format-Volume*",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1686:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1687:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1688:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1689:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1690:        "resource": "diskpart*",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1691:        "effect": "ask"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1692:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1693:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1694:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1695:        "resource": "gh *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1696:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1697:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1698:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1699:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1700:        "resource": "docker *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1701:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1702:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1703:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1704:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1705:        "resource": "ctx7 *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1706:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1707:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1708:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1709:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1710:        "resource": "rea-agents *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1711:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1712:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1713:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1714:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1715:        "resource": "rea *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1716:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1717:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1718:      {
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1719:        "action": "shell",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1720:        "resource": "playwright *",
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1721:        "effect": "allow"
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1722:      },
+  D:\projetos\opencode-orchestration\evidence\handoff-depth2-spike-2026-11-15\debug-agents.txt:1723:      {

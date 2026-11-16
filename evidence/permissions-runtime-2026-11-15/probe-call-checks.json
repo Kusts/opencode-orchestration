@@ -1,0 +1,26 @@
+[
+  {
+    "case": "git-show",
+    "expected_command": "git show HEAD --output=C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\deny-show.txt",
+    "tool_calls": 1,
+    "exact_input_count": 1,
+    "denied_count": 1,
+    "verdict": "DENIED"
+  },
+  {
+    "case": "git-log",
+    "expected_command": "git log --output=C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\deny-log.txt",
+    "tool_calls": 1,
+    "exact_input_count": 1,
+    "denied_count": 1,
+    "verdict": "DENIED"
+  },
+  {
+    "case": "rg-pre",
+    "expected_command": "rg --pre C:\\Users\\walis\\AppData\\Local\\Temp\\oo-perm-proof-f519ca589f4a4f0d84d17bf892c65f45\\pre.cmd x .",
+    "tool_calls": 1,
+    "exact_input_count": 1,
+    "denied_count": 1,
+    "verdict": "DENIED"
+  }
+]

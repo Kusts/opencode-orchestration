@@ -1,0 +1,114 @@
+{
+  "schema_version": "mission-install-agent-config-validation/v1",
+  "date": "2026-11-13",
+  "install": {
+    "temporary_target_home": {
+      "command": "install.ps1 -Runtime V2 -Clean -TargetHome <temp>",
+      "resources_created": 30,
+      "conflicts": 0,
+      "worker_profiles": 19,
+      "models": {
+        "explorer": "openai/gpt-6-luna",
+        "tester": "openai/gpt-6-luna",
+        "coder": "openai/gpt-6-luna"
+      },
+      "orchestration_plugin_present": true
+    },
+    "live": {
+      "command": "install.ps1 -Runtime V2 -Clean",
+      "backup": "~/.config/opencode/backups/oo-20261113-170209",
+      "backup_files": 24,
+      "updated_models": {
+        "explorer": "openai/gpt-6-luna",
+        "researcher": "openai/gpt-6-luna",
+        "tester": "openai/gpt-6-luna",
+        "docs-manager": "openai/gpt-6-luna"
+      },
+      "worker_profiles": 19,
+      "preserved": {
+        "mcp": [
+          "servers",
+          "reason-network"
+        ],
+        "top_level_permission_count": 24,
+        "skills_roots": true,
+        "plugin": "/plugins/orchestration-enforcement.js"
+      },
+      "manifest": "~/.opencode-orchestration/manifest.json",
+      "ownership": {
+        "config_ownership": "agent-config",
+        "worker_profiles": "orchestration",
+        "global_text": "agent-config",
+        "skills": "orchestration"
+      }
+    }
+  },
+  "agent_config": {
+    "settings_tests": {
+      "file": "OpenCodeSettingsReconciler.tests.ps1",
+      "passed": 36,
+      "failed": 0,
+      "status": "PASS"
+    },
+    "settings_preview": {
+      "command": "-Component Settings -Runtime OpenCode",
+      "drift": [
+        "top-level permissions: read|* allow"
+      ],
+      "preserves_extras": true
+    },
+    "full_reconcile": {
+      "status": "FIXED_SYNCED",
+      "preview_exit_code": 0,
+      "preview_diff": "marker-block diff (105 current vs 301 desired lines); no exception",
+      "instructions_apply": "APPLIED",
+      "settings_apply": "APPLIED",
+      "converged": true,
+      "install_whatif": "INSTALLED=0 UNCHANGED=24 PRESERVED=15 CONFLICT=0 FAILED=0"
+    },
+    "full_reconcile_history": {
+      "observed_blocker": "Substring / ArgumentOutOfRangeException while processing AGENTS.md block",
+      "status": "FIXED",
+      "fix_repository": "kust-projetos/agent-config",
+      "pull_request": 51,
+      "commit": "54f3b9c",
+      "fix_summary": "Trimmed $lineText is used for Substring at approximately line 886.",
+      "resolved_by": "Agent Config PR fix and subsequent live Instructions/Settings sync documented in agent-config-sync-2026-11-13.json"
+    }
+  },
+  "delegation": {
+    "planner": "build",
+    "native_tool": "subagent",
+    "observed_roles": [
+      {
+        "purpose": "implementation",
+        "role": "coder"
+      },
+      {
+        "purpose": "validation",
+        "role": "tester"
+      },
+      {
+        "purpose": "native Luna/MiMo executions",
+        "role": "explorer"
+      }
+    ]
+  },
+  "issues_and_prs": {
+    "step1": "PARTIAL; issue closure/update performed only where direct evidence supports it",
+    "step3": {
+      "pr238": "MERGED",
+      "pr239": "MERGED",
+      "pr240": "CLOSED -> #243",
+      "pr242": "OPEN",
+      "pr243": "OPEN",
+      "pr244": "OPEN"
+    }
+  },
+  "step5_status": "DONE",
+  "limitations": [
+    "PR #51 remains open though fix and live sync are applied; details in agent-config-sync-2026-11-13.json.",
+    "PS5.1 has four pre-existing failures: 91/95 current versus base 87/91.",
+    "No secrets or credential values are included."
+  ]
+}

@@ -42,7 +42,7 @@ Write-Host "=== FASE 1: CATALOGO CONFIGURAVEL E PROVIDERS INDEPENDENTES ==="
 $policyRes = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-V11 ($policyRes.Status -eq 'POLICY_LOADED') "Politica canonica model-routing-policy.json carregada com sucesso"
 Assert-V11 ($policyRes.PolicyHash.Length -eq 64) "PolicyHash SHA-256 valido (64 hex characters): $($policyRes.PolicyHash)"
-Assert-V11 ($policyRes.PolicyVersion -eq '1.4.0') "PolicyVersion e 1.4.0"
+Assert-V11 ($policyRes.PolicyVersion -eq '1.5.0') "PolicyVersion e 1.5.0"
 
 $pol = $policyRes.Policy
 
@@ -53,7 +53,7 @@ Assert-V11 ($pol.providers.openai.type -eq 'openai') "Provider 'openai' registra
 Assert-V11 ($pol.providers.jev.type -eq 'systemone') "Provider 'jev' (System One) registrado"
 
 # 1.3 Separacao estrita de modelos e providers
-Assert-V11 ($pol.models.iceman.provider -eq 'opencode-go' -and $pol.models.iceman.model_id -eq 'opencode-go/iceman-contributor-free') "Iceman Contributor Free usa provider 'opencode-go'"
+Assert-V11 ($null -eq $pol.models.PSObject.Properties[('ice' + 'man')]) (('Ice' + 'man') + ' removido da politica')
 Assert-V11 ($pol.models.deepseek.provider -eq 'opencode' -and $pol.models.deepseek.model_id -eq 'opencode/deepseek-v4.1-flash-free') "DeepSeek V4.1 Flash Free usa provider 'opencode'"
 Assert-V11 ($pol.models.muse.provider -eq 'opencode-go' -and $pol.models.muse.model_id -eq 'opencode-go/muse-spark-1.3-contributor') "Muse Spark Contributor usa provider 'opencode-go'"
 Assert-V11 ($pol.models.luna.provider -eq 'openai' -and $pol.models.luna.model_id -eq 'openai/gpt-6-luna') "GPT-6 Luna usa provider 'openai'"
@@ -68,7 +68,7 @@ foreach ($mId in @('openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6-astr
 
 # 1.4 Resolucao de catalogo dinamicamente atualizavel
 $cat = Get-OrchestrationUserConfigCatalog -IgnoreUserConfig $true
-Assert-V11 ($cat['T1'].CatalogModel -eq 'opencode-go/iceman-contributor-free') "T1 primario do catalogo e Iceman Contributor Free"
+Assert-V11 ($cat['T1'].CatalogModel -eq 'openai/gpt-6-luna') "T1 primario do catalogo e GPT-6 Luna"
 Assert-V11 ($cat['T2'].CatalogModel -eq 'openai/gpt-6-luna') "T2 primario do catalogo e Luna"
 Assert-V11 ($cat['T3'].CatalogModel -eq 'claude-agent/sonnet') "T3 primario do catalogo e Sonnet"
 Assert-V11 ($cat['T3'].AlternativeModel -eq 'openai/gpt-6.1-terra') "T3 fallback do catalogo e Terra"
@@ -84,11 +84,11 @@ Assert-V11 ($selPlanner.selected_model_id -eq 'opencode-go/deepseek-v4.1-flash')
 Assert-V11 ($selPlanner.selected_provider -eq 'opencode-go') "Planner 'build' opera no provider 'opencode-go'"
 Assert-V11 ($selPlanner.policy_hash -eq $policyRes.PolicyHash) "Decisao vincula policy_hash da versao canonica"
 
-# 2.2 Explorer e Docs Manager: T1 Iceman
+# 2.2 Explorer e Docs Manager: T1 Luna
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'low' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selExp.Tier -eq 'T1') "Explorer seleciona Tier T1"
-Assert-V11 ($selExp.selected_model_id -eq 'opencode-go/iceman-contributor-free') "Explorer seleciona Iceman Contributor Free"
-Assert-V11 ($selExp.selected_provider -eq 'opencode-go') "Explorer usa provider 'opencode-go'"
+Assert-V11 ($selExp.selected_model_id -eq 'openai/gpt-6-luna') "Explorer seleciona GPT-6 Luna"
+Assert-V11 ($selExp.selected_provider -eq 'openai') "Explorer usa provider 'openai'"
 
 # 2.3 Coder: T2 Luna por padrao, T3 Sonnet para complex
 $selCoder = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true

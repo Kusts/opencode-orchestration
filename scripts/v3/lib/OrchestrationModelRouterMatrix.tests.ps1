@@ -28,7 +28,7 @@ $pol = $p.Policy
 # 1. Declarative primary and same-tier fallback order.
 Assert-MX ([string]$pol.planner.model_id -ceq 'opencode-go/deepseek-v4.1-flash' -and [string]$pol.planner.tier -ceq 'T2' -and [string]$pol.planner.primary -ceq 'deepseek_go') 'mx-planner-deepseek-t2'
 Assert-MX ([string]$pol.role_profiles.build.default_model -ceq 'deepseek_go' -and @($pol.role_profiles.build.alternatives).Count -eq 0) 'mx-build-pinned-deepseek-no-sonnet-alt'
-Assert-MX (([string]$pol.tiers.T1.primary -ceq 'iceman') -and ([string]$pol.tiers.T1.fallback -ceq 'mimo')) 'mx-T1-iceman-to-mimo'
+Assert-MX (([string]$pol.tiers.T1.primary -ceq 'luna') -and ([string]$pol.tiers.T1.fallback -ceq 'mimo')) 'mx-T1-luna-to-mimo'
 Assert-MX (([string]$pol.tiers.T2.primary -ceq 'luna') -and ([string]$pol.tiers.T2.fallback -ceq 'muse')) 'mx-T2-luna-primary'
 Assert-MX (([string]$pol.models.deepseek_go.fallback_candidates[0] -ceq 'muse') -and ([string]$pol.models.deepseek_go.fallback_candidates[1] -ceq 'claude_haiku') -and ([string]$pol.models.deepseek_go.fallback_candidates[2] -ceq 'luna') -and ([string]$pol.models.muse.fallback_candidates[0] -ceq 'claude_haiku') -and ([string]$pol.models.muse.fallback_candidates[1] -ceq 'luna') -and (@($pol.models.luna.fallback_candidates).Count -eq 0)) 'mx-T2-chain-deepseek-first-no-cycle'
 Assert-MX (([string]$pol.tiers.T3.primary -ceq 'claude_sonnet') -and ([string]$pol.tiers.T3.fallback -ceq 'terra') -and ([string]$pol.models.claude_sonnet.fallback_candidates[0] -ceq 'terra')) 'mx-T3-sonnet-terra-order'
@@ -49,21 +49,21 @@ foreach ($id in @('claude_haiku','claude_sonnet','claude_opus','claude_fable')) 
 $build = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($build.Status -ceq 'SELECTED' -and $build.Tier -ceq 'T2' -and $build.CatalogModel -ceq 'opencode-go/deepseek-v4.1-flash') 'mx-build-selection-deepseek'
 $res = Resolve-OrchestrationModelSelection -AgentName 'researcher' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($res.Tier -ceq 'T1' -and $res.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-researcher-starts-T1'
+Assert-MX ($res.Tier -ceq 'T1' -and $res.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-researcher-starts-T1'
 $resT2 = Resolve-OrchestrationModelSelection -AgentName 'researcher' -Complexity 'complex' -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($resT2.Tier -ceq 'T2' -and $resT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-researcher-complex-escalates-T2'
 $exp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($exp.Tier -ceq 'T1' -and $exp.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-explorer-starts-T1'
+Assert-MX ($exp.Tier -ceq 'T1' -and $exp.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-explorer-starts-T1'
 $expT2 = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Complexity 'complex' -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($expT2.Tier -ceq 'T2' -and $expT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-explorer-complex-escalates-T2'
 $docs = Resolve-OrchestrationModelSelection -AgentName 'docs-manager' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($docs.Tier -ceq 'T1' -and $docs.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-docs-manager-starts-T1'
+Assert-MX ($docs.Tier -ceq 'T1' -and $docs.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-docs-manager-starts-T1'
 $docsT2 = Resolve-OrchestrationModelSelection -AgentName 'docs-manager' -Complexity 'complex' -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($docsT2.Tier -ceq 'T2' -and $docsT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-docs-manager-complex-escalates-T2'
 $testT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $false -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($testT0.Tier -ceq 'T0' -and $testT0.CatalogModel -like '*deterministic*') 'mx-tester-deterministic-T0'
 $testT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'simple' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($testT1.Tier -ceq 'T1' -and $testT1.CatalogModel -ceq 'opencode-go/iceman-contributor-free') 'mx-tester-simple-LLM-T1'
+Assert-MX ($testT1.Tier -ceq 'T1' -and $testT1.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-tester-simple-LLM-T1'
 $testT2 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'medium' -Risk 'medium' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-MX ($testT2.Tier -ceq 'T2' -and $testT2.CatalogModel -ceq 'openai/gpt-6-luna') 'mx-tester-needed-LLM-T2'
 Assert-MX (@($pol.role_profiles.researcher.admissible_tiers) -notcontains 'T3' -and @($pol.role_profiles.researcher.prohibited_tiers) -contains 'T3') 'mx-researcher-no-auto-T3'
@@ -88,7 +88,7 @@ Assert-MX ([bool]$tierSonnet.ok -and $tierSonnet.tier -ceq 'T3' -and [bool]$tier
 # not an independent no-start proof. The productive fallback resolver stays HOLD.
 $t2sel = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $t1sel = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Complexity simple -Risk low -IgnoreUserConfig $true -NativeModelOverrideProven $true
-$t1fb = Resolve-OrchestrationModelFallback -RequestedSelection $t1sel -FailedModel 'opencode-go/iceman-contributor-free' -TriggerReason RATE_LIMIT -NoExecutionStarted $true -IgnoreUserConfig $true
+$t1fb = Resolve-OrchestrationModelFallback -RequestedSelection $t1sel -FailedModel 'openai/gpt-6-luna' -TriggerReason RATE_LIMIT -NoExecutionStarted $true -IgnoreUserConfig $true
 Assert-MX ($t1fb.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $t1fb.FallbackModel -and $t1fb.CandidateModel -eq 'opencode/mimo-v2.6-flash-free' -and $t1fb.FallbackTier -ceq 'T1') 'mx-T1-Mimo-is-same-tier-audit-candidate-only'
 $t2Haiku = Resolve-OrchestrationModelFallback -RequestedSelection $t2sel -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason RATE_LIMIT -NoExecutionStarted $true -ClaudeAgentProven $true -IgnoreUserConfig $true
 $t2Luna = Resolve-OrchestrationModelFallback -RequestedSelection $t2sel -FailedModel 'opencode-go/muse-spark-1.3-contributor' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor') -TriggerReason RATE_LIMIT -NoExecutionStarted $true -ClaudeAgentProven $true -IgnoreUserConfig $true
@@ -132,7 +132,7 @@ $t4SecShape.Tier = 'T4'; $t4SecShape.CatalogModel = 'claude-agent/opus'
 $t4SecDown = Resolve-OrchestrationModelFallback -RequestedSelection $t4SecShape -FailedModel 'claude-agent/opus' -AttemptedModels @('claude-agent/opus','openai/gpt-6.1-sol') -TriggerReason RATE_LIMIT -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-MX ($t4SecDown.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $t4SecDown.FallbackModel) 'mx-T4-security-never-downgrades-T2'
 foreach ($case in @(
-    @{ name='mx-T1-mimo-fallback-held'; agent='explorer'; failed='opencode-go/iceman-contributor-free'; tier='T1'; model='opencode-go/iceman-contributor-free'; reason='RATE_LIMIT' },
+    @{ name='mx-T1-mimo-fallback-held'; agent='explorer'; failed='openai/gpt-6-luna'; tier='T1'; model='openai/gpt-6-luna'; reason='RATE_LIMIT' },
     @{ name='mx-T2-deepseek-muse-haiku-luna-fallback-held'; agent='coder'; failed='opencode-go/deepseek-v4.1-flash'; tier='T2'; model='opencode-go/deepseek-v4.1-flash'; reason='RATE_LIMIT' },
     @{ name='mx-T3-terra-fallback-held'; agent='coder'; failed='claude-agent/sonnet'; tier='T3'; model='claude-agent/sonnet'; reason='RATE_LIMIT' },
     @{ name='mx-T4-sol-fallback-held'; agent='coder'; failed='claude-agent/opus'; tier='T4'; model='claude-agent/opus'; reason='RATE_LIMIT' },

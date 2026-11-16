@@ -281,6 +281,18 @@ function New-DemoTask {
 $roots = New-Object System.Collections.ArrayList
 
 try {
+    # External executor grants are operator-declared task authority, not role baselines.
+    $externalGrantRoot = New-TaskKernelTestRoot
+    [void]$roots.Add($externalGrantRoot.root)
+    $externalGrantTask = New-OrchestrationTask -TaskId 'external-grants-001' -Objective 'Authorize Telegran executor' `
+        -Actor 'planner' -Grants @('external.telegran.fetch', 'external.telegran.learn') `
+        -TasksDir $externalGrantRoot.tasks -FlagsPath $externalGrantRoot.flags -TelemetryRoot $externalGrantRoot.root
+    Assert-TaskKernel ([bool]$externalGrantTask.ok) 'task accepts registered external Telegran grants'
+    $unknownExternalGrant = New-OrchestrationTask -TaskId 'external-grants-unknown-001' -Objective 'Reject unknown grant' `
+        -Actor 'planner' -Grants @('external.unknown.grant') `
+        -TasksDir $externalGrantRoot.tasks -FlagsPath $externalGrantRoot.flags -TelemetryRoot $externalGrantRoot.root
+    Assert-TaskKernel ((-not [bool]$unknownExternalGrant.ok) -and ([string]$unknownExternalGrant.error -ceq 'INVALID_GRANTS')) 'task rejects invented external grant'
+
     # 1. create + roundtrip, all fields survive
     $t = New-TaskKernelTestRoot
     [void]$roots.Add($t.root)
@@ -641,6 +653,12 @@ try {
     Assert-TaskKernel ($eff5 -cnotcontains 'destructive.fs') 'sensitive grant with task grant plus approval but missing runtime/env sets stays out'
     $eff5b = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @('fs.read', 'destructive.fs') -RuntimeCapabilityGrants @('fs.read', 'destructive.fs') -EnvironmentAuthorizationGrants @('fs.read', 'destructive.fs') -HumanApproved -GrantsPath $repoGrants)
     Assert-TaskKernel (($eff5b -ccontains 'destructive.fs') -and ($eff5b -ccontains 'fs.read')) 'sensitive grant admitted only with all three sets plus approval'
+    foreach ($externalGrant in @('external.telegran.fetch','external.telegran.learn')) {
+        $taskOnly = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @($externalGrant) -GrantsPath $repoGrants)
+        $allApproved = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @($externalGrant) -RuntimeCapabilityGrants @($externalGrant) -EnvironmentAuthorizationGrants @($externalGrant) -HumanApproved -GrantsPath $repoGrants)
+        Assert-TaskKernel ($taskOnly -cnotcontains $externalGrant) ($externalGrant + ' requires trusted sources')
+        Assert-TaskKernel ($allApproved -ccontains $externalGrant) ($externalGrant + ' requires every grant source and human approval')
+    }
     $eff5c = @(Get-OrchestrationEffectiveGrants -Role 'coder' -TaskGrants @('fs.read', 'destructive.fs') -RuntimeCapabilityGrants @('fs.read') -EnvironmentAuthorizationGrants @('fs.read', 'destructive.fs') -HumanApproved -GrantsPath $repoGrants)
     Assert-TaskKernel ($eff5c -cnotcontains 'destructive.fs') 'sensitive grant missing from runtime set stays out'
     $effT = @(Get-OrchestrationEffectiveGrants -Role 'tester' -TaskGrants @('fs.read', 'fs.write', 'shell.validation') -RuntimeCapabilityGrants @('fs.read', 'fs.write', 'shell.validation') -EnvironmentAuthorizationGrants @('fs.read', 'fs.write', 'shell.validation') -HumanApproved -GrantsPath $repoGrants)
@@ -773,6 +791,7 @@ try {
     New-Item -ItemType Directory -Path $rbPolDir -Force | Out-Null
     $rbProfObj = New-Object PSCustomObject
     $rbProfObj | Add-Member -NotePropertyName 'passes' -NotePropertyValue ([PSCustomObject]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 0'; timeout_seconds = 60 })
+    $rbProfObj | Add-Member -NotePropertyName 'fails' -NotePropertyValue ([PSCustomObject]@{ class = 'test'; command = 'powershell -NoProfile -Command exit 1'; timeout_seconds = 60 })
     $rbDoc = [ordered]@{ version = 1; default_timeout_seconds = 120; max_output_chars = 4000; profiles = $rbProfObj }
     Write-TaskKernelFixture -Path (Join-Path $rbPolDir 'verification-policy.json') -Text (New-Object PSCustomObject -Property $rbDoc | ConvertTo-Json -Depth 6 -Compress)
     & git -C $rootA add -A *>$null
@@ -789,8 +808,43 @@ try {
     Assert-TaskKernel ([bool]$rb.ok) 'root-bound task create ok' ([string]$rb.error)
     $rbRec = Get-OrchestrationTask -TaskId 'rootbind-001' -TasksDir $t.tasks
     Assert-TaskKernel ([string]$rbRec['verification_repo_root'] -ceq $rootANorm) 'creation stores normalized verification_repo_root' ([string]$rbRec['verification_repo_root'])
+    $failTask = New-OrchestrationTask -TaskId 'verify-fail-001' -Objective 'Verifier failure coverage' -Actor 'planner' `
+        -RuntimeId 'opencode-v1' -RuntimeGeneration 1 -RuntimeProfile 'v1' -BaseRevision 'HEAD' `
+        -ReadScopes @() -WriteScopes @() -Grants @('fs.read', 'fs.write') -AcceptanceCriteria @('must pass') `
+        -VerificationProfiles @('fails') -AttemptBudget 3 -BudgetPolicyPath $rbBudgetPol -TasksDir $t.tasks `
+        -FlagsPath $t.flags -RepoRoot $rootA -TelemetryRoot $t.root
+    $failFile = Join-Path $t.tasks 'verify-fail-001.json'
+    $failBefore = Get-TaskBytesHash -Path $failFile
+    $failRun = Invoke-TaskKernelVerifyRun -TaskId 'verify-fail-001' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootA
+    $failAfter = Get-TaskBytesHash -Path $failFile
+    $failRec = Get-OrchestrationTask -TaskId 'verify-fail-001' -TasksDir $t.tasks
+    $failEvidence = @($failRec['verification']['evidence'])
+    Assert-TaskKernel (([bool]$failTask.ok) -and ([bool]$failRun.ok) -and ([string]$failRun.status -ceq 'verification_failed') -and ([string]$failRun.error -cne 'VERIFY_RUN_VERIFICATION_FAILED') -and ($failAfter -cne $failBefore) -and ([int]$failRec['revision'] -eq 2) -and ($failEvidence -contains 'criterion:0:unverified')) 'mapped real verifier failure persists complete criterion evidence as before'
+    $coveragePassDecision = Get-TaskKernelCoverageFailureCode -Status 'verified_pass'
+    $coverageFailDecision = Get-TaskKernelCoverageFailureCode -Status 'verification_failed'
+    $passCoverage = Test-TaskKernelCriterionCoverage -Evidence @('no criterion mapping') -CriterionCount 1
+    $passFixtureBefore = Get-TaskBytesHash -Path $failFile
+    $passDecisionNoWrite = $coveragePassDecision
+    $passFixtureAfter = Get-TaskBytesHash -Path $failFile
+    Assert-TaskKernel ((-not [bool]$passCoverage.ok) -and ($coveragePassDecision -ceq 'VERIFY_RUN_CRITERION_UNMAPPED') -and ($coverageFailDecision -ceq 'VERIFY_RUN_VERIFICATION_FAILED') -and ($passDecisionNoWrite -ceq 'VERIFY_RUN_CRITERION_UNMAPPED') -and ($passFixtureBefore -ceq $passFixtureAfter)) 'incomplete verified_pass coverage remains unmapped and decision path is read-only'
+
+    $safeFailureReason = Protect-TaskKernelText -Text ("reason`0 token=SYNTHETIC_SECRET " + ('x' * 2200))
+    $safeFailureReason = [regex]::Replace($safeFailureReason, '[\x00-\x1F\x7F]', ' ')
+    Assert-TaskKernel (($safeFailureReason.Length -le 2000) -and ($safeFailureReason -notmatch 'SYNTHETIC_SECRET') -and ($safeFailureReason -notmatch '[\x00-\x1F\x7F]')) 'verification failure diagnostic is redacted, control-free and capped at 2000 chars'
     $rbRev = [int]$rbRec['revision']
     $rbFile = Join-Path $t.tasks 'rootbind-001.json'
+    # An out-of-scope write is a verifier failure even though its scope-only
+    # evidence cannot map every acceptance criterion. It must remain read-only.
+    $rbBaseFile = Join-Path $rootA 'base.txt'
+    Write-TaskKernelFixture -Path $rbBaseFile -Text "out of scope`n"
+    $rbOutBytesBefore = Get-TaskBytesHash -Path $rbFile
+    $rbOut = Invoke-TaskKernelVerifyRun -TaskId 'rootbind-001' -ExpectedRevision $rbRev -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootA
+    $rbOutBytesAfter = Get-TaskBytesHash -Path $rbFile
+    $rbOutRec = Get-OrchestrationTask -TaskId 'rootbind-001' -TasksDir $t.tasks
+    $rbOutVerification = $rbOutRec['verification']
+    $rbOutVerificationUnchanged = ($null -eq $rbOutVerification) -or ([string]$rbOutVerification['status'] -ceq 'not_run')
+    Assert-TaskKernel ((-not [bool]$rbOut.ok) -and ([string]$rbOut.error -ceq 'VERIFY_RUN_VERIFICATION_FAILED') -and ([string]$rbOut.status -ceq 'verification_failed') -and ([string]$rbOut.reason -ceq 'out_of_scope_write') -and (-not [string]::IsNullOrWhiteSpace([string]$rbOut.detail)) -and ($rbOutBytesBefore -ceq $rbOutBytesAfter) -and ([int]$rbOutRec['revision'] -eq $rbRev) -and $rbOutVerificationUnchanged) 'out-of-scope verifier failure stays primary and does not mutate task' ([string]$rbOut.error)
+    Write-TaskKernelFixture -Path $rbBaseFile -Text "base`n"
     $rbBytesBefore = Get-TaskBytesHash -Path $rbFile
     $rbMismatch = Invoke-TaskKernelVerifyRun -TaskId 'rootbind-001' -ExpectedRevision $rbRev -TasksDir $t.tasks -FlagsPath $t.flags -RepoRoot $rootB
     $rbBytesAfter = Get-TaskBytesHash -Path $rbFile
@@ -1034,6 +1088,77 @@ try {
     [IO.File]::WriteAllText($dLargePath, ('x' * 50000), [Text.Encoding]::UTF8)
     $dLarge = Read-TaskKernelDiagOutput -Path $dLargePath -MaxChars 256
     Assert-TaskKernel ($dLarge.chars -eq 256 -and $dLarge.truncated -and $dLarge.text.Length -lt 400) 'diagnostic reader caps bytes read before sanitization'
+
+    # Regression: run the verifier-failure path from a shadow library in a
+    # child process, so the copied TaskKernel resolves the controlled fixture.
+    $productionKernel = Join-Path $PSScriptRoot 'OrchestrationTaskKernel.ps1'
+    $productionHashBefore = Get-TaskBytesHash -Path $productionKernel
+    $shadowLib = Join-Path $t.root 'shadow-lib'
+    New-Item -ItemType Directory -Path $shadowLib -Force | Out-Null
+    Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter '*.ps1' |
+        Where-Object { $_.Name -notlike '*.tests.ps1' } |
+        Copy-Item -Destination $shadowLib
+    $shadowKernel = Join-Path $shadowLib 'OrchestrationTaskKernel.ps1'
+    $fixtureVerifier = @'
+$global:VerifierFixtureLoaded = $true
+function Get-OrchestrationVerificationPolicy { param($PolicyPath, $RepoRoot); return @{ ok = $true; policy = @{ profiles = @{ controlled = @{ class = 'test'; command = 'unused' } } } } }
+function Invoke-OrchestrationVerifier { param($TaskId, $RepoRoot, $BaseRevision, $WriteScopes, $ProfileNames, $PolicyPath, $AcceptanceCriteria); return $global:VerifierFixtureResult }
+'@
+    Write-TaskKernelFixture -Path (Join-Path $shadowLib 'OrchestrationVerifier.ps1') -Text $fixtureVerifier
+    $childScript = Join-Path $t.root 'verify-regression-child.ps1'
+    $childBody = @'
+param($ShadowKernel, $Root, $BudgetSource)
+$ErrorActionPreference = 'Stop'
+. $ShadowKernel
+$tasks = Join-Path $Root 'isolated-tasks'
+New-Item -ItemType Directory -Path $tasks -Force | Out-Null
+$flags = Join-Path $Root 'isolated-flags.json'
+[IO.File]::WriteAllText($flags, '{"task_kernel":{"enabled":true,"shadow":false}}', [Text.Encoding]::UTF8)
+$repo = Join-Path $Root 'isolated-repo'
+New-Item -ItemType Directory -Path $repo -Force | Out-Null
+$policy = Join-Path $repo 'policy.json'
+[IO.File]::WriteAllText($policy, '{}', [Text.Encoding]::UTF8)
+Copy-Item -LiteralPath $BudgetSource -Destination (Join-Path $repo 'execution-budget-policy.json')
+& git -C $repo init -q
+& git -C $repo config core.autocrlf false
+& git -C $repo config user.email 'fixture@example.com'
+& git -C $repo config user.name 'Fixture'
+[IO.File]::WriteAllText((Join-Path $repo 'base.txt'), 'base')
+& git -C $repo add -A
+& git -C $repo commit -q -m init
+function New-FixtureTask($id) {
+  $created = New-OrchestrationTask -TaskId $id -Objective 'fixture' -TaskType implementation -Actor planner -RuntimeId opencode-v1 -RuntimeGeneration 1 -RuntimeProfile v1 -RuntimeVersion 1.18.32 -BaseRevision HEAD -ReadScopes @() -WriteScopes @() -Grants @('fs.read','fs.write') -AcceptanceCriteria @('criterion') -ExpectedArtifacts @() -VerificationProfiles @('controlled') -AttemptBudget 3 -BudgetPolicyPath (Join-Path $repo 'execution-budget-policy.json') -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo -TelemetryRoot $Root
+  if (-not $created.ok) { throw "fixture task create failed: $($created.error)" }
+  $null = Invoke-OrchestrationTaskTransition -TaskId $id -ToState PLANNING -Actor planner -ExpectedRevision 1 -TasksDir $tasks -FlagsPath $flags
+  $null = Invoke-OrchestrationTaskTransition -TaskId $id -ToState IMPLEMENTING -Actor planner -ExpectedRevision 2 -ActorIdentitySource explicit-cli -TasksDir $tasks -FlagsPath $flags
+  $null = Invoke-OrchestrationTaskTransition -TaskId $id -ToState VALIDATING -Actor coder -ExpectedRevision 3 -ActorIdentitySource explicit-cli -TasksDir $tasks -FlagsPath $flags
+}
+New-FixtureTask 'unmapped'
+$file = Join-Path $tasks 'unmapped.json'
+$before = (Get-FileHash $file -Algorithm SHA256).Hash
+$global:VerifierFixtureResult = @{ ok = $true; status = 'verified_pass'; evidence = @('no criterion evidence'); command_classes = @('test') }
+$pass = Invoke-TaskKernelVerifyRun -TaskId unmapped -ExpectedRevision 4 -VerificationPolicyPath $policy -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
+$after = (Get-FileHash $file -Algorithm SHA256).Hash
+$passTask = Get-OrchestrationTask -TaskId unmapped -TasksDir $tasks
+if (-not $global:VerifierFixtureLoaded -or $pass.error -cne 'VERIFY_RUN_CRITERION_UNMAPPED' -or $before -cne $after -or [int]$passTask.revision -ne 4 -or $null -ne $passTask.verification) { throw 'verified_pass regression assertions failed' }
+New-FixtureTask 'failed'
+$failedFile = Join-Path $tasks 'failed.json'
+$failedBefore = (Get-FileHash $failedFile -Algorithm SHA256).Hash
+$global:VerifierFixtureResult = @{ ok = $true; status = 'verification_failed'; evidence = @('incomplete evidence'); command_classes = @('test') }
+$failed = Invoke-TaskKernelVerifyRun -TaskId failed -ExpectedRevision 4 -VerificationPolicyPath $policy -TasksDir $tasks -FlagsPath $flags -RepoRoot $repo
+$failedAfter = (Get-FileHash $failedFile -Algorithm SHA256).Hash
+$failedTask = Get-OrchestrationTask -TaskId failed -TasksDir $tasks
+if ($failed.error -cne 'VERIFY_RUN_VERIFICATION_FAILED' -or $failedBefore -cne $failedAfter -or [int]$failedTask.revision -ne 4 -or $null -ne $failedTask.verification) { throw 'verification_failed control assertions failed' }
+'PASS'
+'@
+    Write-TaskKernelFixture -Path $childScript -Text $childBody
+    $budgetSource = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'source\registry\execution-budget-policy.json'
+    $childOutput = & pwsh -NoProfile -File $childScript -ShadowKernel $shadowKernel -Root $t.root -BudgetSource $budgetSource 2>&1
+    $childExit = $LASTEXITCODE
+    $productionHashAfter = Get-TaskBytesHash -Path $productionKernel
+    Assert-TaskKernel (($childExit -eq 0) -and (@($childOutput) -contains 'PASS')) 'child verify-run regression rejects unmapped verified_pass and preserves failed control without mutation' ($childOutput -join ' ')
+    Assert-TaskKernel ($productionHashBefore -ceq $productionHashAfter) 'verify-run regression leaves production TaskKernel SHA-256 unchanged'
+
     $dBoundaryPrefix = '{"token":"SYNTHETIC_BOUNDARY_ESCAPE' + [char]92
     $dBoundaryPath = Join-Path $t.root 'credential-boundary.txt'
     [IO.File]::WriteAllText($dBoundaryPath, ($dBoundaryPrefix + 'tail"}'), [Text.Encoding]::UTF8)

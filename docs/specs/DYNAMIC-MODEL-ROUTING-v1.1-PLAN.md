@@ -1,5 +1,7 @@
 ﻿# PLAN — Dynamic Model Routing v1.1
 
+> **Histórico:** plano original v1.1, não é status operacional atual. Referências a Iceman T1, Luna T3 ou Planner Luna estão superadas pela policy 1.5.0 (T1/T2 Luna; T3 Sonnet; Planner DeepSeek Go sem fallback).
+
 **Projeto:** Kusts/opencode-orchestration
 **Status:** READY_FOR_IMPLEMENTATION
 **SPEC:** Dynamic Model Routing & Intelligent Advisory v1.1

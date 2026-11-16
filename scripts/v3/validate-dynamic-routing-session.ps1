@@ -3,7 +3,7 @@
     Deterministic validator for the kernel-backed dynamic routing contract,
     optional caller-supplied productive-session proof and opt-in Jev probing.
 .DESCRIPTION
-    Scope (model-routing-policy 1.4.0):
+    Scope (model-routing-policy 1.5.0):
       1. contract_verifications - policy-level and kernel-proof-path checks:
          Planner DeepSeek Go-only T2 (no automatic fallback); Coder T2 Luna ->
          DeepSeek Go -> Muse -> Haiku (Claude leg gated, never fabricated; HOLD

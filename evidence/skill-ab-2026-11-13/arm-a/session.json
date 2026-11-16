@@ -1,0 +1,17 @@
+{
+  "session": "ses_e26b4e4c8ffeSler4hYOCnEao1",
+  "assistantMessageID": "msg_1d94b53e8001ylJAk2yHHmxdp7",
+  "model": { "providerID": "openai", "id": "gpt-6-luna", "variant": "default" },
+  "metrics": {
+    "source": "OpenCode API message records; aggregated over observed assistant messages",
+    "tokens": { "input": 3815, "output": 498, "reasoning": 21, "cache_read": 231680, "cache_write": 0 },
+    "cost": 0,
+    "busy": null,
+    "busy_note": "Not present in returned API message records"
+  },
+  "skill_tool_call": {
+    "called": true,
+    "id": "verification-before-completion",
+    "state": "completed"
+  }
+}

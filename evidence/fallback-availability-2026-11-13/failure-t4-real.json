@@ -1,0 +1,19 @@
+{
+  "error": {
+    "type": "tool.execution",
+    "message": "Model \"claude-agent/opus-availability-probe-nonexistent\" is not available. Use the models tool to see what is available."
+  },
+  "content": [],
+  "observed_at": "2026-11-14T01:35:46.4666489Z",
+  "source_tool": "subagent",
+  "requested_model": "claude-agent/opus-availability-probe-nonexistent",
+  "parent_session": "",
+  "session_id": null,
+  "execution_started": false,
+  "assistant_messages": 0,
+  "tool_calls": 0,
+  "tier_context": "T4",
+  "kernel_proof_reference": "modelproof:fallback-avail-t4-20261113:T3:2:7",
+  "kernel_proof_digest": "sha256:ea18967593d40242503a2b5a2460cb1fcfa6e566f15553c444a835c379a8e2d3",
+  "observation_note": "Client-side model/catalog rejection before execution; not provider HTTP failure."
+}

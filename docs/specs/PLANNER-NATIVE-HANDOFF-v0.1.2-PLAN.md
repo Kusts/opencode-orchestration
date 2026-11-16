@@ -276,3 +276,47 @@ pendentes; nunca apagar efeitos/recibos para “limpar” o estado.
   runtime foi reexecutado; recibos internamente consistentes não provam
   liquidação do TaskKernel; `runtime_grant_enforcement` segue OFF/HOLD;
   nenhuma alteração de flag/configuração, instalação, provider ou credencial.
+
+## Spike nativo — 2026-11-15
+
+### Pergunta
+É possível realizar handoff dinâmico direto worker→worker (sessão filha criando outra filha, com transferência nativa de continuidade entre workers) no estado atual do runtime/configuração pinada (issue #241)?
+
+### Observado (fontes verificadas)
+- `templates/opencode.v2.json.tmpl`: define `experimental.subagent_depth: 1`; os 19 workers têm `subagent "*": deny` e `permission.task: deny`; o Planner/build tem allow explícito para os 19 workers.
+- Plugin de enforcement: expõe apenas observabilidade/injeção (`ctx.event.subscribe`, `session.hook("context")`, `tool.hook("execute.before")`) e, opt-in, a tool `orchestration_planner_wait`. Não há tool de transferência worker→worker nem API de criar sessão filha a partir de um worker.
+- Evidência de runtime já registrada: `evidence/subagent-permissions-2026-11-14/evidence.json:77` registra `D_full_chain: HOLD (depth 1)`; `docs/audits/ETAPA-6D-PROVENANCE-PROBE-2026-11-03.json` prova `session.create` com `parentID` via API externa em 2.0.23 — isso **não** prova `depth > 1` nem delegação worker→worker no 2.3.0.
+
+### Veredito
+**NOT_SUPPORTED** no estado atual (depth 1 + workers sem permissão de subagent/task).
+
+### O que o relay via Planner já faz (fluxo suportado)
+O relay via Planner permanece o caminho suportado: o worker retorna resultado/evidência ao Planner; o Planner decide a continuação e despacha o próximo worker apropriado sob as permissões, admission, G1, receipts e gates existentes. Não há handoff direto entre workers.
+
+### Critério objetivo de retomada (todos exigidos, nenhum provado)
+Retomar a avaliação de handoff nativo direto apenas quando houver evidência objetiva de que:
+1. `subagent_depth > 1` está carregado e comprovado no binário/configuração pinados;
+2. workers estão autorizados ao hop necessário (subagent/task) sem violar least privilege;
+3. existe prova no binário pinado de que a sessão filha cria outra filha com `parentID` encadeado observável via `session.get/list`;
+4. G1/admission/receipts não são bypassados no fluxo encadeado;
+5. há evidência PASS/FAIL/HOLD registrada em `evidence/`;
+6. o runtime expõe delegação a workers e o fluxo produz `parentID` encadeado observável com G1/receipts intactos (requisito reforçado pelo spike depth=2 de 2026-11-15).
+
+**Nada disso foi provado.** Estes spikes não alteram permissões, templates, `source/agents` nem configurações de runtime; não há claim de implementação ou de handoff direto funcional.
+
+### Spike isolado depth=2 — 2026-11-15
+
+#### Pergunta
+Com `experimental.subagent_depth=2` e permissão explícita de delegação, o runtime expõe ao worker a capacidade de criar subagente (handoff direto worker→worker) no fluxo testado?
+
+#### Método
+Execução isolada e temporária em 2026-11-15: config com `experimental.subagent_depth=2` e permissão `coder -> tester`; invocação `opencode run --standalone --agent coder`. A config ativa foi verificada intacta (hash antes/depois) e o pós-spike `WhatIf` registrou `INSTALLED=0`.
+
+#### Resultado
+**NOT_SUPPORTED** no fluxo standalone testado. O agente `coder` não recebeu a tool de criação de subagente; a execução realizou apenas chamadas `execute` de busca no catálogo; `session.list` filtrado pelo parent retornou vazio; nenhuma sessão filha foi criada.
+
+#### Evidência
+`evidence/handoff-depth2-spike-2026-11-15/` (`result.json`, `run.jsonl`, `session-tree.json`, `debug-agents.txt`).
+
+#### Interpretação e limitação
+A limitação observada não é apenas `depth=1`/permissão: no runtime testado, a tool de delegação não foi exposta ao worker. Esta é evidência negativa do fluxo standalone testado, sem generalização para todos os frontends/superfícies de execução. **Não há claim de handoff funcional.** O critério de retomada (§ acima) exige runtime que exponha delegação a workers com `parentID` encadeado e G1/receipts intactos.

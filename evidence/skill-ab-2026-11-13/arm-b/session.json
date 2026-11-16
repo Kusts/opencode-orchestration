@@ -1,0 +1,21 @@
+{
+  "other_skill_calls": [
+    "ai-memory-retrieval",
+    "systematic-debugging"
+  ],
+  "verification_skill_called": false,
+  "assistantMessageID": "msg_1d94d5656001icMQDE0ovqiHWm",
+  "session": "ses_e26b3193fffeNcR91ONx6RoJHd",
+  "tier": "T2",
+  "model": "openai/gpt-6-luna",
+  "metrics": {
+    "cache_write_tokens": 0,
+    "input_tokens": 19741,
+    "cost": 0.0,
+    "cache_read_tokens": 448256,
+    "output_tokens": 784,
+    "busy_note": "Not exposed by API records",
+    "reasoning_tokens": 194,
+    "busy": null
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schema_version": "mission-agent-config-sync/v1",
+  "observed_date": "2026-11-13",
+  "agent_config_fix": {
+    "repository": "kust-projetos/agent-config",
+    "pull_request": 51,
+    "pull_request_status": "OPEN",
+    "commit": "54f3b9c",
+    "file": "reconcile-agent-config.ps1",
+    "approx_line": 886,
+    "fix": "Use trimmed $lineText in Substring operation to prevent range exception.",
+    "tests": {
+      "pwsh": {
+        "passed": 95,
+        "failed": 0
+      },
+      "powershell_5_1": {
+        "passed": 91,
+        "failed": 4,
+        "preexisting_failures": 4,
+        "base_passed": 87,
+        "base_failed": 4
+      },
+      "OpenCodeSettingsReconciler": {
+        "passed": 36,
+        "failed": 0
+      }
+    }
+  },
+  "instructions_sync": {
+    "preview": {
+      "exit_code": 0,
+      "diff": "marker-block diff",
+      "current_lines": 105,
+      "desired_lines": 301,
+      "exception": false
+    },
+    "apply": {
+      "command": "-Component Instructions -Runtime OpenCode -RepoRoot C:\\Users\\walis\\agent-config",
+      "status": "APPLIED",
+      "targets": [
+        "global",
+        "opencode"
+      ],
+      "rollback": "C:\\Users\\walis\\.agents\\reconciliation-backups\\reconcile-20261113-182722\\rollback.json",
+      "active_block_points_to": "C:\\Users\\walis\\agent-config",
+      "canonical_path_reapplied": true,
+      "purpose": "Corrected active block path that had pointed to the worktree."
+    }
+  },
+  "settings_sync": {
+    "command": "-Component Settings -Runtime OpenCode -Apply -Force",
+    "status": "APPLIED",
+    "permissions_before": 24,
+    "permissions_after": 25,
+    "added_permission": "read|* allow",
+    "extras_preserved": true,
+    "backup": "opencode.json.20261113-182740...bak",
+    "agents": {
+      "explorer": "openai/gpt-6-luna",
+      "tester": "openai/gpt-6-luna",
+      "coder": "openai/gpt-6-luna"
+    },
+    "worker_profiles": 19,
+    "mcp": [
+      "servers",
+      "reason-network"
+    ],
+    "skills_roots_preserved": true
+  },
+  "convergence": {
+    "instructions_preview": "SAME",
+    "instructions_hash": "3784D3AD9BFB",
+    "settings_preview": "SAME",
+    "settings_hash": "80E3767353D8",
+    "install_whatif": {
+      "command": "install.ps1 -WhatIf",
+      "installed": 0,
+      "unchanged": 24,
+      "preserved": 15,
+      "conflict": 0,
+      "failed": 0,
+      "result": "No drift; install did not undo sync."
+    }
+  },
+  "step5_status": "DONE",
+  "limitations": [
+    "PR #51 is open; fix is applied in the live Agent Config sync and tested as stated.",
+    "PS5.1 suite retains four pre-existing failures (base 87/91); current result is 91/95.",
+    "No secrets or credential values recorded."
+  ]
+}

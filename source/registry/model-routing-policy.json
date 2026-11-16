@@ -1,6 +1,6 @@
 {
   "schema_version": "model-routing-policy/v1",
-  "policy_version": "1.4.0",
+  "policy_version": "1.5.0",
   "providers": {
     "opencode": {
       "name": "OpenCode Console",
@@ -34,46 +34,6 @@
     }
   },
   "models": {
-    "iceman": {
-      "id": "iceman",
-      "provider": "opencode-go",
-      "model_id": "opencode-go/iceman-contributor-free",
-      "enabled": true,
-      "tier_profiles": [
-        "T1"
-      ],
-      "eligible_roles": [
-        "explorer",
-        "docs-manager",
-        "researcher",
-        "tester"
-      ],
-      "capabilities": [
-        "exploration",
-        "file-locating",
-        "simple-classification",
-        "extraction",
-        "triage"
-      ],
-      "priority": 1,
-      "cost_profile": {
-        "pricing_type": "free",
-        "relative_cost": 0.01,
-        "requires_authorization": false
-      },
-      "context_limits": {
-        "max_input_tokens": 128000,
-        "max_output_tokens": 8192
-      },
-      "data_policy": {
-        "sensitive_data_allowed": true
-      },
-      "availability_status": "active",
-      "last_verified_at": "2026-10-27T00:00:00Z",
-      "fallback_candidates": [
-        "mimo"
-      ]
-    },
     "deepseek": {
       "id": "deepseek",
       "provider": "opencode",
@@ -174,6 +134,7 @@
       "model_id": "openai/gpt-6-luna",
       "enabled": true,
       "tier_profiles": [
+        "T1",
         "T2"
       ],
       "eligible_roles": [
@@ -758,12 +719,12 @@
     },
     "T1": {
       "name": "UltraLight",
-      "primary": "iceman",
+      "primary": "luna",
       "alternatives": [
         "mimo"
       ],
-      "relative_cost": 0.01,
-      "description": "Free and ultra-lightweight exploration and triage; same-tier fallback only (iceman<->mimo), transport exhaustion never upgrades to a higher tier",
+      "relative_cost": 1,
+      "description": "Luna (openai) primary with free same-tier fallback only (mimo); transport exhaustion never upgrades to a higher tier",
       "fallback": "mimo"
     },
     "T2": {
@@ -818,13 +779,12 @@
       "alternatives": []
     },
     "explorer": {
-      "default_model": "iceman",
+      "default_model": "luna",
       "default_tier": "T1",
       "alternatives": [
         "deepseek_go",
         "muse",
-        "claude_haiku",
-        "luna"
+        "claude_haiku"
       ],
       "admissible_tiers": [
         "T0",
@@ -837,13 +797,12 @@
       ]
     },
     "researcher": {
-      "default_model": "iceman",
+      "default_model": "luna",
       "default_tier": "T1",
       "alternatives": [
         "deepseek_go",
         "muse",
-        "claude_haiku",
-        "luna"
+        "claude_haiku"
       ],
       "admissible_tiers": [
         "T1",
@@ -871,16 +830,14 @@
       "prohibited_tiers": []
     },
     "tester": {
-      "default_model": "iceman",
+      "default_model": "luna",
       "default_tier": "T1",
       "deterministic_tier": "T0",
       "alternatives": [
-        "iceman",
         "mimo",
         "deepseek_go",
         "muse",
-        "claude_haiku",
-        "luna"
+        "claude_haiku"
       ],
       "admissible_tiers": [
         "T0",
@@ -893,13 +850,12 @@
       ]
     },
     "docs-manager": {
-      "default_model": "iceman",
+      "default_model": "luna",
       "default_tier": "T1",
       "alternatives": [
         "deepseek_go",
         "muse",
-        "claude_haiku",
-        "luna"
+        "claude_haiku"
       ],
       "admissible_tiers": [
         "T0",

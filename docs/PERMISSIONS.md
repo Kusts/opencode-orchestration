@@ -7,25 +7,21 @@ Fonte canônica: `source/agents/*.md` (frontmatter `permission:`) + templates po
 sobrevivem intactos. Permissões `bash:`/`shell` vivem nos `.md`/template, não só no
 `opencode.json`.
 
-No V2 com o marcador completo `agent-config:global`, os 19 perfis worker em
-`agents/*.md` e suas entradas JSON (`agents.<worker>`) pertencem ao Agent
-Config; o instalador preserva essas entradas. O modo standalone sem owner mantém
-os snapshots compatíveis. `build`/`title` e settings de raiz ficam fora dessa
-transferência.
+No V2 com o marcador completo `agent-config:global`, a **Orquestração** instala e é dona dos 19 perfis worker em `agents/*.md` e do bloco `agents` do `opencode.json` (incluindo `build`, `title` e os subagentes do escopo da Orquestração). O **Agent Config** mantém o texto global (`<!-- agent-config:global:start/end -->`) e as `permissions` de topo, além de `mcp` e demais chaves user-owned, que o instalador preserva; os perfis worker e o bloco `agents` não são sobrescritos pelo Agent Config. Sem marcador, o instalador opera em modo standalone/snapshot.
 
 ## Tabela 19 agentes × classe × barreira
 
 | Agente | Classe | edit | bash | Barreira |
 |---|---|---|---|---|
-| explorer | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| researcher | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| reviewer | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| architect | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| security-reviewer | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| requirements-analyst | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| engineering-advisor | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| product-designer | read-only | deny | deny | runtime-enforced + prompt-enforced |
-| skeptic | read-only | deny | deny | runtime-enforced + prompt-enforced |
+| explorer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| researcher | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| architect | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| security-reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| requirements-analyst | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| engineering-advisor | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| product-designer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
+| skeptic | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
 | coder | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | frontend-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | backend-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
@@ -33,12 +29,12 @@ transferência.
 | ai-agent-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | automation-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
 | infra-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| docs-manager | writer-no-shell | allow | deny | runtime-enforced + prompt-enforced |
+| docs-manager | writer-diagnostic | allow | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
 | tester | validator-shell | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
 | debugger | validator-shell (diagnóstico) | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
 
-Classes: **read-only** = sem escrita, sem shell; **writer-shell** = edita + shell amplo com
-negações/confirmações pontuais; **writer-no-shell** = edita, sem shell; **diagnostic** =
+Classes: **read-only** = sem escrita (`edit: deny`), shell restrito a allowlist de leitura/diagnóstico (`shell "*": deny` + allows nomeados); **writer-shell** = edita + shell amplo com
+negações/confirmações pontuais; **writer-diagnostic** = edita via ferramenta de edição; shell somente leitura/diagnóstico (docs-manager); **diagnostic** =
 sem escrita + shell restrito a allowlist explícita (legado; nenhum agente usa mais —
 tester e debugger migraram para validator-shell); **validator-shell** = ferramenta de
 edição bloqueada (`edit: deny`) + shell allow-default com negações destrutivas (tester,
@@ -73,9 +69,9 @@ Regras da tradução:
   preservados — **nenhuma regra é ampliada** (nunca `deny`→`ask`/`allow`)
   para compatibilidade.
 - A ordem de regras V2 é **security-sensitive**: em V2 vence a **última**
-  regra que casa (last-match-wins), então a tradução emite broad-first
-  (deny geral primeiro, allows estreitos depois). Validado pelo check 13 de
-  consistência.
+  regra que casa (last-match-wins). A tradução emite primeiro o catch-all,
+  depois `allow`/`ask` e, por último, os denies específicos; o guard só aceita
+  um deny após um permit quando prova que o padrão deny é seu subconjunto.
 - Paridade semântica V1↔V2 (mesmos 19 allows, mesmos pools de modelo,
   workers sem subdelegação, `default_agent`/`build`/`title` iguais) é
   validada pelo check 14.
@@ -106,8 +102,8 @@ OFF/HOLD.
 
 | Camada | Status |
 |---|---|
-| Permissões V1 | runtime-enforced (legado, provado em 1.18.x; sem novos desenvolvimentos) — templates + testes do instalador + smoke CI 1.18.x |
-| Permissões V2 | renderizado + validado por checks (consistency 12–15); claim de enforcement aguarda spike V2 real (Phase 5) |
+| Permissões V1 | legado congelado (prova histórica em 1.18.x cobre o legado); o deny das flags desta rodada não é alegado como contido no V1 — templates + testes do instalador + smoke CI 1.18.x |
+| Permissões V2 | deny de flags (`git diff/show/log *--output*`, `rg *--pre*`, `rg *--hostname-bin*`) provado no runtime 2.3.0 (5/5 comandos, `executed=false`, controles positivos OK, drift 0); renderizado + validado por checks (consistency 12–15). Enforcement geral de grants/policies segue HOLD/Phase 5 |
 | Policies V2 (`experimental.policies`) | HOLD (Phase 5); nenhum hard-deny enviado |
 | Hooks do plugin V1 | runtime-enforced (legado, provado em 1.18.x; sem novos desenvolvimentos — testes do plugin) |
 | Hooks do plugin V2 | implementado com testes mock; claim live pendente da lane CI V2 (Phase 8) |
@@ -117,6 +113,8 @@ Matriz viva em `evidence/v3.1/kernel-hardening/runtime-binding.json` — nenhum
 claim além do testado.
 
 ## Limitações declaradas (sem capacidades inventadas)
+
+- `read-only` nega por default (`shell "*": deny`) e libera uma allowlist nominal de leitura/diagnóstico; `docs-manager` edita via ferramenta de edição e usa a mesma allowlist. Delegação direta entre workers (Coder→Tester→Reviewer) exige `experimental.subagent_depth >= 2` e permanece HOLD — o limite atual é 1.
 
 - Globs `bash:` são **matching de string** sobre o texto do comando. Não inspecionam
   conteúdo de scripts, aliases, nem wrappers como `pwsh -Command ...` / `bash -c ...`.
@@ -134,8 +132,23 @@ claim além do testado.
   (`Set-Content`, `Out-File`, redirecionamento, `Copy-Item`, git não-listado)
   é proibição comportamental — prompt-enforced (corpo do agente) +
   planner-enforced (contrato), não barreira de glob.
-- `read-only` depende de **`bash: deny` no runtime + prompt**. Sem shell, a barreira é
-  total no runtime; o prompt cobre o que o runtime não vê (ex.: instruções via contrato).
+- `read-only` usa `shell "*": deny` e allowlist nominal de leitura/diagnóstico; comandos fora dela são negados por default. A allowlist valida o comando INICIAL. Os cinco padrões `git diff/show/log *--output*` e `rg *--pre*`/`*--hostname-bin*` têm deny explícito (provado no runtime V2 2.3.0; V1 congelado, sem alegação de contenção). Flags/resíduos não contidos pelo glob permanecem proibição comportamental (corpo do agente + contrato do Planner): composição (`;`, `&&`, `|`, `>`), abreviações de flags longas, `--ext-diff`/`--textconv`, `rg -z`/`--search-zip` e credenciais via prefix globs amplos (`git config --get*`, `git remote -v*`). Inspecione a configuração instalada com `opencode debug agents --standalone`; sem `--standalone`, mostra a configuração viva.
+- **Rota de tool vs superfície REST `/shell` (ressalva factual):** o rótulo
+  "runtime-enforced" vale para a rota de tool; a superfície REST
+  `/api/session/{id}/shell` não passa por tool permission (observado em 2.0.23)
+  e não deve ser assumida como deny. Prova no binário exato atual permanece
+  pendente; ver [AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md](specs/AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md).
+- **Grants do Kernel ≠ enforcement de runtime:** grants são registro/decisão de
+  autoridade; não constituem enforcement de runtime enquanto
+  `runtime_grant_enforcement` (v1/v2) estiver OFF.
+- **Precedência topo vs agente (não provada):** a composição entre `permissions`
+  de topo e permissões por agente (last-match-wins) não foi provada no binário
+  exato para a configuração viva; tratar como incerteza até prova de runtime.
+- Em OpenCode 2.3.0, observou-se que as regras de topo precedem as do agente
+  na lista efetiva; assim, o catch-all do perfil vence asks de topo. Por isso
+  `Format-Volume` e `diskpart` foram explicitados como deny nos writers.
+- `opencode debug agents` sem `--standalone` anexa ao serviço em background e
+  mostra a configuração viva do serviço, não a configuração instalada isoladamente.
 - `PRODUCTION_AUTHORIZED` ausente equivale a `false`, e `true` **não autoriza por si só**
   ações destrutivas irreversíveis nem operações com credenciais — essas exigem
   confirmação separada do Planner. `CREDENTIAL_SCOPE` carrega apenas
@@ -220,3 +233,9 @@ não barreira de runtime.
 mantidos, corpo adaptado para diagnóstico (blocker
 `DIAGNOSIS_CAPABILITY_UNAVAILABLE`) — suíte
 `scripts/runtime/debugger-shell-permissions.tests.ps1`.
+
+Resíduos adicionais: abreviações de flags longas do Git (por exemplo `--outp`), `--ext-diff`/`--textconv` e `rg -z`/`--search-zip` não estão cobertos pelos cinco denies. `git config --get*` e `git remote -v*` são prefix globs que também cobrem subcomandos mais amplos; não alegar proteção de credenciais. Composição (`;`, `&&`, `|`) e redirecionamento (`>`) também não estão contidos. O deny dos cinco padrões foi provado no runtime V2 2.3.0 (5/5, `executed=false`, controles positivos OK, drift 0); o enforcement geral de grants/policies segue HOLD/Phase 5. V1 é legado congelado e não é alegado como contido para essas regras.
+
+`ask` de `git push`  atrito best-effort: `git -C <dir> push`, `git -c k=v push` e espao duplo no casam o padro; a conteno real  planner-enforced + gate de delivery.
+
+No 2.3.0, `shell "*": deny` antes de allows nomeados foi observado executando os allows (last-match-wins dentro do array do agente). A composio topo-vs-agente segue no provada.
