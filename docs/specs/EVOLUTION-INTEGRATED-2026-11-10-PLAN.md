@@ -732,7 +732,9 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1 -Name 'OrchestrationEven
 5. **M7/#205.** Aceite: piloto somente com produto/credenciais; sem acesso/produto, manter HOLD com resultado registrado.
 6. **Reconciliação do config ativo.** Aceite: somente após pedido explícito de install/reconcile, usando `scripts/reconcile-opencode-config.ps1` com backup.
 
-1. **#12/#11 — wiring no EvidenceStore do Kernel (prioridade).** — **concluído em 2026-11-12 (#12).**
+### 17.3 Detalhe por item (histórico da rodada, 2026-11-12)
+
+1. **#12/#11 — wiring no EvidenceStore do Kernel (concluído em 2026-11-12).** - **concluído em 2026-11-12 (#12).**
    - Inspecionar `Set-OrchestrationTaskWorkerResult` e `evidence_refs` em
      `OrchestrationTaskKernel.ps1`; integrar `New-OrchestrationArtifactRef`
      para detalhes/logs grandes, persistindo ref + preview e recuperando por
@@ -765,7 +767,7 @@ powershell -NoProfile -File scripts\v3\run-v3-tests.ps1 -Name 'OrchestrationEven
 7. **Reconciliação do config ativo:** somente após pedido explícito de
    install/reconcile; usar `scripts/reconcile-opencode-config.ps1` com backup.
 
-### 17.3 Restrições que continuam valendo
+### 17.4 Restrições que continuam valendo
 
 Residuais LOW aceitos: `repair_decision` last-write-wins sem histórico; caller da biblioteca sem bound de `ChangedFiles`; E2E usa o store default real com cleanup em `finally` (crash pode deixar resíduo); comportamento mediado por LLM/provider fora da prova.
 
@@ -775,7 +777,7 @@ Residuais LOW aceitos: `repair_decision` last-write-wins sem histórico; caller 
 - Preservar evidências; não refazer etapas já provadas.
 - Worker executa implementação/teste; Planner decide e delega; Kernel verifica.
 
-### 17.4 Comandos de retomada
+### 17.5 Comandos de retomada
 
 ```powershell
 cd D:\projetos\_wt\orch-240
@@ -786,13 +788,13 @@ powershell -NoProfile -File scripts\test-package-consistency.ps1
 
 Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem realizar merge/deploy.
 
-### 17.5 Handoff compacto (5 campos)
+### 17.6 Handoff compacto (5 campos)
 
 - **Objetivo/estado:** base `1559483` + commit de handoff `289e960`; o backlog avançou em quatro fatias: #200/#103 entregue, revisado e com E2E determinístico; #183 PARCIAL (contrato codificado/testado, produtor externo ausente); #64 PARCIAL (medição local de descoberta de skills); #192 PARCIAL (comparação pré-execução, Cascade/Critique NOT_IMPLEMENTED); #50/#141 COBERTAS com residuais. branch reconciliada no merge `c05744f` sobre o master `bac73e3`; oito testes focados verdes.
 - **Alterações:** `retry-decision` + schema no contrato `reviewer`; `GITHUB-EVENT-PRODUCER-CONTRACT.md` + casos de contrato; `measure-skills-discovery-cost.ps1` + evidência; `compare-execution-strategies.ps1` + evidência; `audit-pinned-versions.ps1`/`audit-authority-surfaces.ps1` + evidências. Nenhuma permissão/flag/credencial alterada.
 - **Validação:** suítes focadas PS 5.1 pós-reparo 206/9/126/29/17/13/10 e package-consistency 17/17; pwsh pré-reparo 204/6/125/29/17/13/10 (pós-reparo não observado). Runner amplo NÃO verde: 172 PASS / 1 FAIL / 10 SKIP / 1 INTERNAL_ERROR / 184; as duas falhas ambientais — CapabilityDoctor (listing de `$env:TEMP` sensível a atividade externa) e RuntimeWatchdogEnforcement (log ilegível/ausente) — estão caracterizadas no CHANGELOG.
-- **Decisões/pendências:** LOWs aceitos conforme registro. #50 mantém allowlist `OrchestrationModelRouter.ps1:2665` sem substituição; #141 não encontrou duplicação real; #183 aguarda produtor externo; #192 só poderá medir desempenho após implementar Cascade/Critique e executar cenários. PR #210 e M7/#205 permanecem HOLD. Branch publicada; reconciliação concluída no merge `c05744f` sobre `bac73e3`; oito testes focados verdes. Sem push nem integração no master. Retomada nesta worktree worktree `D:\projetos\_wt\orch-240`, branch `feat/kernel-evidence-store-20261111`; o checkout principal `D:\projetos\opencode-orchestration` pertence a outro fluxo e não deve ser tocado.
-- **Próximo passo:** #2/#184/#185; depois #172, PR #210 e M7/#205 (HOLD).
+- **Decisões/pendências:** LOWs aceitos conforme registro. #50 mantém allowlist `OrchestrationModelRouter.ps1:2665` sem substituição; #141 não encontrou duplicação real; #183 aguarda produtor externo; #192 só poderá medir desempenho após implementar Cascade/Critique e executar cenários. PR #210 e M7/#205 permanecem HOLD. Branch publicada; reconciliação concluída no merge `c05744f` sobre `bac73e3`; oito testes focados verdes. Sem push nem integração no master. Retomada nesta worktree `D:\projetos\_wt\orch-240`, branch `fix/240-reconcile-20261113`; master permanece intocado.
+- **Próximo passo:** #183 / decisão de operador sobre produtor externo; depois seguir a ordem do §17.2.
 
 - **Objetivo/estado:** continuar M0–M7; P0, P0.5 e P0.6 provados; missão
   encerrada com residuais.
@@ -803,4 +805,4 @@ Nota: push/PR desta branch exige pedido explícito; não assumir CI verde nem re
   typecheck PASS; package-consistency 17/17.
 - **Decisões/pendências:** #183 opção (b); M7 HOLD; #12/#11 no EvidenceStore;
   #200/#103 E2E; #64/#192/#50/#141/#2/#184/#185/#172; PR #210; config ativo.
-- **Próximo passo:** item 1 de §17.2.
+- **Próximo passo:** #183 / decisão de operador sobre produtor externo (primeiro item pendente da ordem de retomada).
