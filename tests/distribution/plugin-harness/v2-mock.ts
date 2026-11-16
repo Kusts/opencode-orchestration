@@ -281,7 +281,12 @@ ok(
 ok(
   /model-fallback\.ps1 -Action next/i.test(v2PlannerText) &&
     /pre_dispatch/i.test(v2PlannerText) &&
-    /without asking the user/i.test(v2PlannerText),
+    /without asking the user/i.test(v2PlannerText) &&
+    /independently observed|observed evidence/i.test(v2PlannerText) &&
+    /AttemptedModels/i.test(v2PlannerText) &&
+    /-Risk/i.test(v2PlannerText) &&
+    /-Complexity/i.test(v2PlannerText) &&
+    /task-kernel -Action model-attempt/i.test(v2PlannerText),
   "M2 V2 planner: availability fallback is an automatic mandate",
 );
 const v2WorkerText =
