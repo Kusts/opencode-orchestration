@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
-. 'D:\projetos\_wt\orch-fallback\scripts\v3\lib\OrchestrationProviderError.ps1'
+. (Join-Path $PSScriptRoot 'OrchestrationProviderError.ps1')
 $passed = 0
 $failed = 0
 function Assert-ProviderError {
