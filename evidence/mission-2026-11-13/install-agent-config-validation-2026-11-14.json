@@ -1,0 +1,43 @@
+{
+  "status": "blocked_live_plugin_dependency_divergence",
+  "revision": "fdaa6ae",
+  "backup_path": "C:\\Users\\walis\\.config\\opencode\\backups\\oo-20261114-012006",
+  "install_summary": {
+    "exit_code": 0,
+    "result": "INSTALLED=15 UNCHANGED=13 PRESERVED=15 CONFLICT=0 FAILED=0",
+    "backup_files": 24,
+    "states": {"agents":"PASS","config":"PASS","plugin":"PASS","skills":"PASS","AGENTS.md":"PASS"}
+  },
+  "whatif_summary": {
+    "exit_code": 0,
+    "result": "INSTALLED=0 UNCHANGED=24 PRESERVED=15 CONFLICT=0 FAILED=0",
+    "plan_resources": 39
+  },
+  "plugin_spec": {
+    "expected": "@opencode/plugin@2.3.0",
+    "manifest": "@opencode/plugin@2.3.0",
+    "active_package_json_dependency": "@opencode/plugin 2.0.28",
+    "status": "divergent; stopped without manual repair"
+  },
+  "runtime_version": "opencode v2.3.0",
+  "profiles_count": {"expected":19,"present":19,"missing":[]},
+  "preserved": {
+    "mcp_top_level_keys": ["servers","reason-network"],
+    "reason_network_present": true,
+    "top_level_permissions_present": true,
+    "installer_reported": ["PRESERVE mcp.*","PRESERVE permissions (chave de topo desconhecida)"],
+    "ownership": {
+      "global_text":"agent-config",
+      "top_level_permissions":"agent-config",
+      "worker_profiles":"orchestration",
+      "skills":"orchestration"
+    }
+  },
+  "notes": [
+    "models.jsonc copiado do checkout principal para o worktree e ignorado pelo Git.",
+    "Instalação V2 Clean concluída com exit 0; backup criado no caminho informado.",
+    "WhatIf passou com INSTALLED=0, CONFLICT=0 e FAILED=0.",
+    "Após a instalação, package.json ativo informa @opencode/plugin 2.0.28, embora o manifesto indique @opencode/plugin@2.3.0. Como diverge da verificação solicitada, execução parada sem correção manual.",
+    "MCP foi preservado pelo plano do instalador; comparação do conteúdo anterior/posterior de permissões não foi feita."
+  ]
+}
