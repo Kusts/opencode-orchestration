@@ -2117,9 +2117,11 @@ function Set-OrchestrationTaskWorkerResult {
             if ([string]::IsNullOrWhiteSpace($RepoRoot)) { return (New-TaskKernelError -Code 'EVIDENCE_STORE_REQUIRES_REPO_ROOT') }
             try {
                 $repoFull = [IO.Path]::GetFullPath($RepoRoot).TrimEnd([char[]]@('\', '/'))
+                $cacheFull = [IO.Path]::GetFullPath((Join-Path $repoFull 'cache')).TrimEnd([char[]]@('\', '/'))
                 $storeFull = [IO.Path]::GetFullPath($EvidenceStoreDir).TrimEnd([char[]]@('\', '/'))
-                $repoPrefix = $repoFull + [IO.Path]::DirectorySeparatorChar
-                if (-not $storeFull.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) { return (New-TaskKernelError -Code 'EVIDENCE_STORE_OUTSIDE_REPO') }
+                $cachePrefix = $cacheFull + [IO.Path]::DirectorySeparatorChar
+                if (-not $storeFull.StartsWith($cachePrefix, [StringComparison]::OrdinalIgnoreCase)) { return (New-TaskKernelError -Code 'EVIDENCE_STORE_OUTSIDE_REPO') }
+                if (Test-TaskKernelPathHasReparsePoint -Path $storeFull) { return (New-TaskKernelError -Code 'EVIDENCE_STORE_OUTSIDE_REPO') }
             } catch { return (New-TaskKernelError -Code 'EVIDENCE_STORE_OUTSIDE_REPO') }
             $redaction = Get-TaskKernelRedactionResult -Text ([string]$FailureDetail) -TimeoutSeconds 5
             if ($redaction.ok) { $evidenceContent = [string]$redaction.text }
