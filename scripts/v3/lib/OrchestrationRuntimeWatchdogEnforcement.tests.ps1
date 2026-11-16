@@ -3008,6 +3008,35 @@ try {
     foreach ($kp36 in @($kids36)) {
         try { $lp36 = Get-Process -Id ([int]$kp36) -ErrorAction Stop; if ($null -ne $lp36) { $restGone36 = $false } } catch { }
     }
+    try {
+        $diag36 = @()
+        foreach ($field36 in @('ok', 'settlement', 'interrupted', 'killed_count', 'tree_excluded', 'reason', 'reasons')) {
+            $value36 = 'unavailable'
+            if ($null -ne $int36b -and $int36b.PSObject.Properties[$field36]) {
+                $value36 = [string]$int36b.$field36
+            }
+            $diag36 += ($field36 + '=' + $value36)
+        }
+        $diag36 += ('expected_ids=' + (($kids36 | ForEach-Object { [string][int]$_ }) -join ','))
+        $diag36 += 'handles=unavailable'
+        $lookup36 = @()
+        foreach ($pid36 in @($kids36)) {
+            $lookupState36 = 'absent'
+            $lookupStart36 = 'unavailable'
+            try {
+                $lookupProc36 = Get-Process -Id ([int]$pid36) -ErrorAction Stop
+                if ($null -ne $lookupProc36) {
+                    $lookupState36 = 'present'
+                    try { $lookupStart36 = ([DateTime]$lookupProc36.StartTime).ToUniversalTime().ToString('o') } catch { }
+                }
+            } catch { }
+            $lookup36 += ([string][int]$pid36 + ':' + $lookupState36 + ':start=' + $lookupStart36)
+        }
+        $diag36 += ('get_process=' + ($lookup36 -join ','))
+        Write-Host ('[DIAG] FIX4-2b resumed remainder: ' + ($diag36 -join ';'))
+    } catch {
+        try { Write-Host '[DIAG] FIX4-2b resumed remainder: collection=unavailable' } catch { }
+    }
     Assert-Enforce ($restGone36) 'FIX4-2b resumed remainder is gone' ''
     foreach ($kp36 in @($kids36)) { Stop-EnforceSafetyId -ProcessId ([int]$kp36) }
     Stop-EnforceSafety -Proc $root36
