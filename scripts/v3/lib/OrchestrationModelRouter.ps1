@@ -853,6 +853,15 @@ function Resolve-OrchestrationModelFallback {
     $reqModel = [string]$RequestedSelection.CatalogModel
     $origModel = if (-not [string]::IsNullOrWhiteSpace($FailedModel)) { $FailedModel } else { $reqModel }
     $origProvider = Get-ModelProviderFromId $origModel
+    $availabilityReasonMap = @{
+        'PROVIDER_UNAVAILABLE' = 'SERVICE_UNAVAILABLE'
+        'QUOTA' = 'QUOTA_EXCEEDED'
+    }
+    $normalizedTriggerReason = ([string]$TriggerReason).Trim().ToUpperInvariant()
+    if ($availabilityReasonMap.ContainsKey($normalizedTriggerReason)) {
+        $normalizedTriggerReason = $availabilityReasonMap[$normalizedTriggerReason]
+    }
+    $TriggerReason = $normalizedTriggerReason
 
     # 1. Carrega politica dinamica canonica
     $polResult = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
@@ -916,8 +925,19 @@ function Resolve-OrchestrationModelFallback {
     # without an allowlisted technical class there is no ordered candidate
     # set to audit, and no generic same-tier selection is permitted.
     $allowlistedTechnical = @('RATE_LIMIT', 'QUOTA', 'QUOTA_EXCEEDED', 'MODEL_UNAVAILABLE', 'MODEL_ERROR', 'PROVIDER_ERROR', 'OFFLINE', 'SERVICE_UNAVAILABLE')
-    $normReason = ([string]$TriggerReason).Trim().ToUpperInvariant()
+    $normReason = $normalizedTriggerReason
     if (($allowlistedTechnical -notcontains $TriggerReason) -and ($allowlistedTechnical -notcontains $normReason)) {
+        if ($cleanAgent -eq 'build' -and $normReason -in @('REQUEST_INVALID','EXECUTION_UNKNOWN')) {
+            return [pscustomobject]@{
+                Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
+                AuthorizedModel=$null; CandidateModel=$null; FallbackTier=$null; OriginalModel=$origModel
+                OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
+                TriggerReason=$TriggerReason; Reason='Planner fallback is limited to allowlisted availability failures; invalid or unknown execution state has no eligible candidate.'
+                AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+                AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
+                ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
+            }
+        }
         return [pscustomobject]@{
             Status='FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF'; IsAuthorized=$false; FallbackModel=$null
             AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
@@ -1088,6 +1108,12 @@ function Resolve-OrchestrationModelFallback {
             $provProp = $policy.providers.PSObject.Properties[$CandObj.Provider]
             if ($null -ne $provProp -and $null -ne $provProp.Value -and $provProp.Value.enabled -eq $false) {
                 & $RecordExclusion $mId $tier 'PROVIDER_DISABLED'
+                return $null
+            }
+            if ($null -ne $provProp -and $null -ne $provProp.Value -and
+                $null -ne $provProp.Value.PSObject.Properties['availability_status'] -and
+                [string]$provProp.Value.availability_status -cne 'active') {
+                & $RecordExclusion $mId $tier 'PROVIDER_UNAVAILABLE'
                 return $null
             }
         }
@@ -1354,13 +1380,50 @@ function Resolve-OrchestrationModelFallback {
         }
     }
 
-    # Planner (build) is DeepSeek Go-only (T2). No automatic model fallback is
-    # implemented or authorized: caller booleans (HaikuPreRunUnavailable,
-    # NoExecutionStarted) are untrusted signals, not independent proof.
-    # Never send build through generic T2/T3 candidate enumeration; never
-    # silently choose another model; never Sonnet; build is prohibited
-    # from T4.
+    # Planner may expose only the explicitly configured T2 Luna availability
+    # candidate. This resolver never authorizes execution: independent
+    # no-start evidence is required downstream. Generic build enumeration and
+    # all T3/T4 candidates remain prohibited.
     if ($cleanAgent -eq 'build') {
+        $plannerPolicy = if ($null -ne $policy) { $policy.planner } else { $null }
+        $plannerPrimary = if ($plannerPolicy) { [string]$plannerPolicy.model_id } else { '' }
+        $plannerFallback = if ($plannerPolicy) { [string]$plannerPolicy.fallback_model_id } else { '' }
+        if ($plannerPrimary -ceq 'opencode-go/deepseek-v4.1-flash' -and
+            $origModel -ceq $plannerPrimary -and
+            $plannerFallback -ceq 'openai/gpt-6-luna' -and
+            $policy.planner.fallback -ceq 'luna' -and
+            $policy.planner.fallback_provider -ceq 'openai' -and
+            $script:AvailabilityTriggerReasons -contains $normalizedTriggerReason -and
+            $NoExecutionStarted) {
+            $lunaEntry = if ($null -ne $policy.models) { $policy.models.luna } else { $null }
+            if ($null -eq $lunaEntry) {
+                & $RecordExclusion $plannerFallback 'T2' 'MODEL_NOT_IN_POLICY'
+            } else {
+                $lunaProvider = [string]$lunaEntry.provider
+                $providerProp = if ($null -ne $policy.providers -and $lunaProvider) { $policy.providers.PSObject.Properties[$lunaProvider] } else { $null }
+                $providerEntry = if ($null -ne $providerProp) { $providerProp.Value } else { $null }
+                $lunaActive = ([string]$lunaEntry.availability_status -ceq 'active')
+                $lunaCandidate = [pscustomobject]@{
+                    ModelId       = [string]$lunaEntry.model_id
+                    LogicalId     = [string]$lunaEntry.id
+                    Provider      = $lunaProvider
+                    Enabled       = ([bool]$lunaEntry.enabled -and $lunaActive)
+                    Priority      = if ($null -ne $lunaEntry.priority) { [int]$lunaEntry.priority } else { 99 }
+                    EligibleRoles = @($lunaEntry.eligible_roles)
+                    RequiresCost  = [bool]$lunaEntry.cost_profile.requires_authorization
+                    Exceptional   = [bool]$lunaEntry.cost_profile.exceptional_budget_required
+                    Tier          = 'T2'
+                    Seq           = 0
+                }
+                $validPlannerLuna = & $EvaluateCandidate $lunaCandidate
+                if ($null -ne $validPlannerLuna -and $validPlannerLuna.ModelId -ceq 'openai/gpt-6-luna' -and $validPlannerLuna.Provider -ceq 'openai') {
+                    return (& $BuildAuthorizedResult $validPlannerLuna.ModelId 'T2' 'Planner T2 Luna availability fallback; independent no-start proof required.' $false)
+                }
+            }
+        }
+        if (($script:AvailabilityTriggerReasons -contains $normalizedTriggerReason) -and -not $NoExecutionStarted) {
+            & $RecordExclusion 'openai/gpt-6-luna' 'T2' 'INDEPENDENT_NO_START_PROOF_REQUIRED'
+        }
         & $RecordExclusion 'opencode-go/deepseek-v4.1-flash' 'T2' 'PLANNER_NO_AUTOMATIC_FALLBACK'
         return [pscustomobject]@{
             Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
@@ -2487,6 +2550,7 @@ function Resolve-OrchestrationModelSelection {
         IsCompliant               = $true
         policy_version            = $polVer
         policy_hash               = $polHash
+        planner_fallback_model    = if ($cleanAgent -eq 'build' -and $policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.Policy.planner.fallback_model_id } else { $null }
         fallback_candidates       = $catalogRes.FallbackCandidates
         IgnoreUserConfig          = [bool]$IgnoreUserConfig
         KernelProofReference      = $kernelProofRef

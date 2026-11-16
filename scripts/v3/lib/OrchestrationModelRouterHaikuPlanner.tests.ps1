@@ -69,14 +69,14 @@ Assert-HP ((-not [bool]$aliasUnknown.Matches) -and ([string]$aliasUnknown.Reason
 # 3. Planner/build is DeepSeek Go T2 and has no automatic model fallback.
 Assert-HP ([string]$pol.planner.primary -eq 'deepseek_go' -and [string]$pol.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and `
     [string]$pol.planner.provider -eq 'opencode-go' -and [string]$pol.planner.tier -eq 'T2') 'hp-planner-primary-deepseek-T2'
-Assert-HP (($null -eq $pol.planner.fallback_model_id) -and (-not [bool]$pol.planner.fallback_requires_capability_proof)) 'hp-planner-no-automatic-fallback'
+Assert-HP (([string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and (-not [bool]$pol.planner.fallback_requires_capability_proof)) 'hp-planner-T2-Luna-availability-fallback-with-independent-no-start-proof'
 Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'deepseek_go') 'hp-build-profile-deepseek'
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-HP ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $sPlanner.selected_provider -eq 'opencode-go') 'hp-planner-selection-deepseek-T2'
 
 # 4. Planner failure has no fallback ladder; caller booleans do not authorize replay.
 $fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fbPlanner.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbPlanner.FallbackModel -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-deepseek-failure-no-replay'
+Assert-HP ($fbPlanner.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fbPlanner.FallbackModel -and $fbPlanner.CandidateModel -eq 'openai/gpt-6-luna' -and $fbPlanner.FallbackTier -eq 'T2' -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-T2-Luna-availability-candidate-held-no-replay'
 $fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
 Assert-HP ($fbPlannerTimeout.FallbackModel -eq $null -and -not [bool]$fbPlannerTimeout.IsAuthorized) 'hp-planner-timeout-no-replay'
 

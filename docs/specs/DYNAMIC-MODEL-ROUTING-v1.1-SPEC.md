@@ -349,7 +349,7 @@ Exemplo conceitual:
 
 **Planner**
 
-- Primary: `deepseek_go` (`opencode-go/deepseek-v4.1-flash`), no automatic fallback.
+- Primary remains `deepseek_go` (`opencode-go/deepseek-v4.1-flash`, T2); same-tier Luna (`openai/gpt-6-luna`) is an availability candidate only with independent no-start proof. Native automatic recovery remains BLOCKED until a no-duplication path is proven (2026-11-16 CLI probe without a message failed with “You must provide a message”). Never Sonnet/Opus/Astra/T3/T4 for Planner availability.
 - Stable during objective: true.
 
 **Advisor**
