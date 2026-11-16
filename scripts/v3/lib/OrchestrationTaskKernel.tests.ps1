@@ -1035,7 +1035,7 @@ try {
     $null = Invoke-OrchestrationTaskTransition -TaskId 'evidence-task-001' -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
     $null = Invoke-OrchestrationTaskTransition -TaskId 'evidence-task-001' -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags
     $originalEvidence = 'synthetic-evidence-' + ('x' * 200000)
-    $evidenceStore = Join-Path $t.root 'evidence-store'
+    $evidenceStore = Join-Path $t.root 'cache\evidence-store'
     $evResult = Set-OrchestrationTaskWorkerResult -TaskId 'evidence-task-001' -Status 'failed' -ProducedBy 'coder' -FailureDetail $originalEvidence -EvidenceStoreDir $evidenceStore -RepoRoot $t.root -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags
     $evRecord = Get-OrchestrationTask -TaskId 'evidence-task-001' -TasksDir $t.tasks
     $evAttempt = @($evRecord['attempts'])[0]
@@ -1182,7 +1182,7 @@ if ($failed.error -cne 'VERIFY_RUN_VERIFICATION_FAILED' -or $failedBefore -cne $
     # 33. Evidence virtualization redaction fail-closed and regex timeout coverage.
     $evSecretId = 'evidence-secret-virtual-001'
     $evSecretDetail = ('large detail sk-SYNTHETICSECRET ' + (('secret-line' + "`r`n") * 800))
-    $evSecretStore = Join-Path $t.root 'evidence-secret-store'
+    $evSecretStore = Join-Path $t.root 'cache\evidence-secret-store'
     $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $evSecretId
     $null = Invoke-OrchestrationTaskTransition -TaskId $evSecretId -ToState 'PLANNING' -Actor 'planner' -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
     $null = Invoke-OrchestrationTaskTransition -TaskId $evSecretId -ToState 'IMPLEMENTING' -Actor 'planner' -ExpectedRevision 2 -ActorIdentitySource 'explicit-cli' -TasksDir $t.tasks -FlagsPath $t.flags
@@ -1196,7 +1196,7 @@ if ($failed.error -cne 'VERIFY_RUN_VERIFICATION_FAILED' -or $failedBefore -cne $
     Assert-TaskKernel ($evSecretResult.ok -and $evSecretEntry.preview -notmatch 'sk-SYNTHETICSECRET' -and $evSecretContent -notmatch 'sk-SYNTHETICSECRET' -and $evSecretJson -notmatch 'sk-SYNTHETICSECRET') 'F1a virtualized detail redacts canary from preview, artifact and task record'
 
     $evFailId = 'evidence-redaction-fail-001'
-    $evFailStore = Join-Path $t.root 'evidence-redaction-fail-store'
+    $evFailStore = Join-Path $t.root 'cache\evidence-redaction-fail-store'
     $null = New-DemoTask -TasksDir $t.tasks -FlagsPath $t.flags -Root $t.root -Id $evFailId
     $null = Invoke-OrchestrationTaskTransition -TaskId $evFailId -ToState 'PLANNING' -Actor planner -ExpectedRevision 1 -TasksDir $t.tasks -FlagsPath $t.flags
     $null = Invoke-OrchestrationTaskTransition -TaskId $evFailId -ToState 'IMPLEMENTING' -Actor planner -ExpectedRevision 2 -ActorIdentitySource explicit-cli -TasksDir $t.tasks -FlagsPath $t.flags
@@ -1225,7 +1225,7 @@ if ($failed.error -cne 'VERIFY_RUN_VERIFICATION_FAILED' -or $failedBefore -cne $
     $null = Invoke-OrchestrationTaskTransition -TaskId $evLinesId -ToState IMPLEMENTING -Actor planner -ExpectedRevision 2 -ActorIdentitySource explicit-cli -TasksDir $t.tasks -FlagsPath $t.flags
     $manyLines = ('line x' + "`r`n") * 35000
     $evLinesThrown = $false
-    try { $evLinesResult = Set-OrchestrationTaskWorkerResult -TaskId $evLinesId -Status failed -ProducedBy coder -FailureDetail $manyLines -EvidenceStoreDir (Join-Path $t.root 'evidence-lines-store') -RepoRoot $t.root -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags } catch { $evLinesThrown = $true }
+    try { $evLinesResult = Set-OrchestrationTaskWorkerResult -TaskId $evLinesId -Status failed -ProducedBy coder -FailureDetail $manyLines -EvidenceStoreDir (Join-Path $t.root 'cache\evidence-lines-store') -RepoRoot $t.root -ExpectedRevision 3 -TasksDir $t.tasks -FlagsPath $t.flags } catch { $evLinesThrown = $true }
     $evLinesRecord = Get-OrchestrationTask -TaskId $evLinesId -TasksDir $t.tasks
     $evLinesAttempt = @($evLinesRecord['attempts'])[0]
     Assert-TaskKernel ((-not $evLinesThrown) -and ($evLinesResult.ok -or $evLinesResult.error -ceq 'EVIDENCE_REDACTION_UNAVAILABLE')) 'F2 one-megabyte multiline detail is handled without unhandled exception'
