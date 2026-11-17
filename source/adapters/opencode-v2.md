@@ -55,13 +55,13 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Planner `build` (primario `opencode-go/deepseek-v4.1-flash`, T2): sem fallback automático configurado.
-  A CLI nativa `opencode run` aceita `--model`/`--continue`/`--session`, mas não há alternativa autorizada ao Planner na política (`planner.fallback=null`), `Invoke-OrchestrationNativeResume` omite `--model` e não há loop seguro comprovado de detecção de falha do próprio Planner sem duplicar mensagens/sessões; portanto, a recuperação automática do Planner está BLOCKED por decisão de política e falta de prova de não-duplicação, sem criar segundo Planner/supervisor.
+- Planner `build` mantém `opencode-go/deepseek-v4.1-flash` como primário T2; a política autoriza o candidato same-tier Luna (`openai/gpt-6-luna`) somente para indisponibilidade com prova independente de não-início.
+  A recuperação automática completa continua BLOCKED: o caminho nativo seguro sem duplicação não está comprovado. Em 2026-11-16, `opencode run --session <id> --model <m>` sem mensagem falhou com “You must provide a message”; não repetir o turno nem criar segundo Planner/supervisor.
   O modelo global e `agents.build.model` permanecem DeepSeek Go; outros agentes não herdam Luna.
   O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
   necessárias. Sem prova segura de que a execucao nao comecou, nao ha replay automatico
   apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Sonnet, nunca T3/T4
-  por fallback automático.
+  por indisponibilidade; nunca Sonnet, Opus, Astra, T3 ou T4.
 - As cadeias abaixo definem candidatos permitidos pela policy; a seleção do próximo candidato é mediada pelo Planner e não executada automaticamente pelo runtime.
 - Researcher/Explorer/Docs Manager: T1 inicial, T2 sob escalonamento quando requerido. Tester: T0 determinístico, T1 trivial/simples, T2 não-trivial. Nenhum dos quatro usa T3/T4 automaticamente. Engineering-advisor: mínimo T3 (Sonnet primário/Terra fallback), T2 proibido.
 - Elegibilidade de substituição por tier (a lista define candidatos, não autoriza

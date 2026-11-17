@@ -38,7 +38,7 @@ function Read-JsoncFile([string]$Path) {
 $policy = Get-Content -LiteralPath (Join-Path $repo 'source\registry\model-routing-policy.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $planner = $policy.planner
 Assert-PMC ([string]$planner.primary -ceq 'deepseek_go' -and [string]$planner.model_id -ceq 'opencode-go/deepseek-v4.1-flash' -and [string]$planner.provider -ceq 'opencode-go' -and [string]$planner.tier -ceq 'T2') 'pmc-policy-planner-primary-deepseek-t2'
-Assert-PMC (($null -eq $planner.fallback_model_id) -and (-not [bool]$planner.fallback_requires_capability_proof)) 'pmc-policy-build-no-automatic-fallback'
+Assert-PMC (([string]$planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and ([string]$planner.fallback -ceq 'luna') -and (-not [bool]$planner.fallback_requires_capability_proof)) 'pmc-planner-T2-Luna-availability-fallback-with-independent-no-start-proof'
 Assert-PMC ([string]$policy.role_profiles.build.default_model -ceq 'deepseek_go' -and (@($policy.role_profiles.build.admissible_tiers) -contains 'T2')) 'pmc-build-role-deepseek-t2'
 Assert-PMC (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build') 'pmc-haiku-not-admissible-for-planner-build'
 Assert-PMC ([string]$policy.role_profiles.'engineering-advisor'.default_model -ceq 'claude_sonnet' -and [string]$policy.role_profiles.'engineering-advisor'.default_tier -ceq 'T3') 'pmc-advisor-sonnet-t3'

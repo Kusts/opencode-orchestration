@@ -27,7 +27,7 @@ $pol = $p.Policy
 
 # 1. Declarative primary and same-tier fallback order.
 Assert-MX ([string]$pol.planner.model_id -ceq 'opencode-go/deepseek-v4.1-flash' -and [string]$pol.planner.tier -ceq 'T2' -and [string]$pol.planner.primary -ceq 'deepseek_go') 'mx-planner-deepseek-t2'
-Assert-MX ([string]$pol.role_profiles.build.default_model -ceq 'deepseek_go' -and @($pol.role_profiles.build.alternatives).Count -eq 0) 'mx-build-pinned-deepseek-no-sonnet-alt'
+Assert-MX ([string]$pol.role_profiles.build.default_model -ceq 'deepseek_go' -and @($pol.role_profiles.build.alternatives).Count -eq 1 -and [string]$pol.role_profiles.build.alternatives[0] -ceq 'luna') 'mx-build-deepseek-primary-with-T2-Luna-availability-fallback'
 Assert-MX (([string]$pol.tiers.T1.primary -ceq 'luna') -and ([string]$pol.tiers.T1.fallback -ceq 'mimo')) 'mx-T1-luna-to-mimo'
 Assert-MX (([string]$pol.tiers.T2.primary -ceq 'luna') -and ([string]$pol.tiers.T2.fallback -ceq 'muse')) 'mx-T2-luna-primary'
 Assert-MX (([string]$pol.models.deepseek_go.fallback_candidates[0] -ceq 'muse') -and ([string]$pol.models.deepseek_go.fallback_candidates[1] -ceq 'claude_haiku') -and ([string]$pol.models.deepseek_go.fallback_candidates[2] -ceq 'luna') -and ([string]$pol.models.muse.fallback_candidates[0] -ceq 'claude_haiku') -and ([string]$pol.models.muse.fallback_candidates[1] -ceq 'luna') -and (@($pol.models.luna.fallback_candidates).Count -eq 0)) 'mx-T2-chain-deepseek-first-no-cycle'

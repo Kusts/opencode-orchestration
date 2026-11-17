@@ -776,7 +776,7 @@
       "prohibited_tiers": [
         "T4"
       ],
-      "alternatives": []
+      "alternatives": ["luna"]
     },
     "explorer": {
       "default_model": "luna",
@@ -1125,12 +1125,12 @@
     "provider": "opencode-go",
     "stable_during_objective": true,
     "tier": "T2",
-    "fallback": null,
-    "fallback_model_id": null,
-    "fallback_provider": null,
+    "fallback": "luna",
+    "fallback_model_id": "openai/gpt-6-luna",
+    "fallback_provider": "openai",
     "fallback_requires_capability_proof": false,
     "fallback_capability": null,
-    "fallback_resolution_note": "Planner is DeepSeek Go (T2). No automatic fallback for Planner is implemented or authorized by this matrix; the generic T2 chain applies to non-build roles only; build has no silent fallback."
+    "fallback_resolution_note": "Operator decision 2026-11-16: same-tier T2 Luna availability fallback only with independent proof of non-start; no silent switch, no T3/T4. Generic T2 build chain remains prohibited."
   },
   "advisor": {
     "default": "claude_sonnet",

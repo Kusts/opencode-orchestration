@@ -5,7 +5,7 @@
 .DESCRIPTION
     Scope (model-routing-policy 1.5.0):
       1. contract_verifications - policy-level and kernel-proof-path checks:
-         Planner DeepSeek Go-only T2 (no automatic fallback); Coder T2 Luna ->
+         Planner DeepSeek Go T2 primary (Luna availability candidate requires independent no-start proof); Coder T2 Luna ->
          DeepSeek Go -> Muse -> Haiku (Claude leg gated, never fabricated; HOLD
          audit-only, never authorized dispatch); DeepSeek Go operator-enabled
          active with ZDR expired-unconfirmed (note records operator selection,
@@ -210,7 +210,7 @@ $policy = $policyRes.Policy
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Add-ContractCheck "Planner Model Selection" ($selPlanner.Tier -eq 'T2' -and $selPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "Planner alocado em Tier T2 com DeepSeek Go (policy-backed)"
 Add-ContractCheck "Planner Provider Isolation" ($selPlanner.selected_provider -eq 'opencode-go') "Provider efetivo: opencode-go (DeepSeek Go nunca redirecionado)"
-Add-ContractCheck "Planner Fallback Contract" ([string]$policy.planner.tier -eq 'T2' -and [string]$policy.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and $null -eq $policy.planner.fallback_model_id -and (-not [bool]$policy.planner.fallback_requires_capability_proof)) "Planner DeepSeek Go T2 DeepSeek Go-only; no automatic fallback (policy-level, non-dispatch)"
+Add-ContractCheck "Planner Fallback Contract" ([string]$policy.planner.tier -eq 'T2' -and [string]$policy.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and [string]$policy.planner.fallback_model_id -eq 'openai/gpt-6-luna' -and (-not [bool]$policy.planner.fallback_requires_capability_proof)) "Planner DeepSeek Go T2 primary; Luna same-tier availability candidate requiring independent no-start proof (non-dispatch)"
 Add-ContractCheck "Claude Alias Resolution Unverified" ([string]$policy.models.claude_haiku.resolution_status -eq 'runtime-unverified') "claude_haiku resolution_status=runtime-unverified; resolucao concreta de alias permanece NAO verificada em runtime"
 Add-ContractCheck "Claude Haiku Policy Eligibility" ([bool]$policy.models.claude_haiku.enabled -and (@($policy.models.claude_haiku.eligible_roles) -contains 'coder') -and (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build')) "claude_haiku habilitado e elegivel p/ coder (build DeepSeek Go-only, sem Haiku) na politica (policy-level eligibility only; non-dispatch proof)"
 
