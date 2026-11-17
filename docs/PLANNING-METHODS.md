@@ -1,6 +1,6 @@
 # Metodologias de planejamento: instalação e seleção no OpenCode V2
 
-> Estado em 2026-11-17: as oito `skills-core` incluem técnicas adaptadas das quatro origens e entram via `install.ps1`, inclusive offline. A issue [#237](https://github.com/Kusts/opencode-orchestration/issues/237) acompanha essa inclusão; o roteamento adaptativo por tarefa permanece separado na [#48](https://github.com/Kusts/opencode-orchestration/issues/48).
+> Estado em 2026-11-17: as oito `skills-core` incluem técnicas adaptadas das quatro origens e entram via `install.ps1`, inclusive offline. A issue [#237](https://github.com/Kusts/opencode-orchestration/issues/237) acompanha essa inclusão; a seleção contextual está implementada e validada na [#48](https://github.com/Kusts/opencode-orchestration/issues/48), com evidência em `evidence/orchestration-autonomy-2026-11-17/RELATORIO.md`.
 
 ## Fontes e instruções oficiais
 
