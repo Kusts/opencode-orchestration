@@ -195,6 +195,6 @@ Ver [docs/](docs/) para arquitetura, instalação, segurança e troubleshooting.
 
 ## Metodologias híbridas (Superpowers, BMAD, Matt e Addy)
 
-O Planner usa o roteador único `hybrid-development` e pode combinar técnicas de **Superpowers**, **BMAD Method**, **Matt Pocock Skills** e **Addy Osmani Agent Skills** por tarefa, sem instalar quatro frameworks concorrentes. O pacote atual já inclui adaptações de Superpowers e Matt; a inclusão automática offline de técnicas BMAD/Addy está em desenvolvimento na [issue #237](https://github.com/Kusts/opencode-orchestration/issues/237).
+O Planner usa o roteador único `hybrid-development` e pode combinar técnicas de **Superpowers**, **BMAD Method**, **Matt Pocock Skills** e **Addy Osmani Agent Skills** por tarefa, sem instalar quatro frameworks concorrentes. As oito `skills-core` já incluem técnicas adaptadas das quatro origens e são instaladas pelo pacote, inclusive offline. Isso não instala os frameworks upstream completos: suas instalações oficiais continuam opcionais e manuais, separadas do instalador.
 
 Fontes oficiais, comandos de instalação no OpenCode, estado real do pacote, atualização e teste rápido: **[docs/PLANNING-METHODS.md](docs/PLANNING-METHODS.md)**. Seleção adaptativa: [issue #48](https://github.com/Kusts/opencode-orchestration/issues/48). A instalação padrão continua `.\install.ps1 -Runtime V2`.

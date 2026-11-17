@@ -1,6 +1,6 @@
 # Metodologias de planejamento: instalação e seleção no OpenCode V2
 
-> Estado em 2026-11-10: **Superpowers e Matt Pocock já possuem adaptações em `skills-core/` e entram via `install.ps1`. BMAD e Addy Osmani ainda precisam ser incorporados ao pacote para disponibilidade offline automática.** A integração completa é acompanhada pela [issue #237](https://github.com/Kusts/opencode-orchestration/issues/237) e o roteamento pela [#48](https://github.com/Kusts/opencode-orchestration/issues/48).
+> Estado em 2026-11-17: as oito `skills-core` incluem técnicas adaptadas das quatro origens e entram via `install.ps1`, inclusive offline. A issue [#237](https://github.com/Kusts/opencode-orchestration/issues/237) acompanha essa inclusão; o roteamento adaptativo por tarefa permanece separado na [#48](https://github.com/Kusts/opencode-orchestration/issues/48).
 
 ## Fontes e instruções oficiais
 
@@ -11,7 +11,7 @@
 | Matt Pocock Skills | https://github.com/mattpocock/skills | `npx skills@latest add mattpocock/skills -a opencode` | Reusar adaptações existentes em `skills-core/`; importar apenas lacunas |
 | Addy Osmani Agent Skills | https://github.com/addyosmani/agent-skills | [Instalação para OpenCode](https://github.com/addyosmani/agent-skills/blob/main/docs/opencode-setup.md): copiar skills selecionadas para `.opencode/skills/` ou `~/.config/opencode/skills/` | Acrescentar técnicas de engenharia não duplicadas pelo catálogo existente |
 
-Os comandos nativos servem para **uso opcional isolado**. Não são executados automaticamente por `install.ps1`: instalar os frameworks inteiros em paralelo pode criar regras/bootstrap/skills conflitantes. Para uso normal, o objetivo é que as **técnicas selecionadas e versionadas no próprio pacote** sejam entregues sem downloads adicionais.
+**Técnicas adaptadas no pacote** são skills locais versionadas em `skills-core/`: o instalador distribui as oito automaticamente, sem download adicional, e elas podem ser usadas offline. Isso não equivale a instalar os **frameworks upstream completos**. Os comandos da tabela são alternativas manuais e opcionais para quem explicitamente deseja usar um framework upstream; `install.ps1` nunca os executa. Instalar frameworks completos em paralelo pode acrescentar regras, bootstrap ou skills concorrentes.
 
 ## Instalação recomendada do orquestrador (Windows, OpenCode V2)
 
@@ -26,7 +26,7 @@ Copy-Item models.example.jsonc models.jsonc
 .\install.ps1 -Runtime V2
 ```
 
-O instalador já distribui as skills-core do pacote em `~/.config/opencode/skills/`. **Até a #237 ser implementada e testada, não afirmar que ele instala as quatro origens integralmente.** Após a #237, os componentes BMAD e Addy selecionados devem ser encontrados no mesmo catálogo pela instalação padrão, inclusive offline, sem instalar quatro repositórios nem carregar as quatro metodologias em toda tarefa.
+O instalador distribui as oito técnicas adaptadas em `~/.config/opencode/skills/`, inclusive offline. A validação registrada em `evidence/planner-autonomy-e2e/skills-install-validation.md` cobre instalação, preservação, idempotência e carregamento real de uma skill. Esse artefato é local e não versionado (`.gitignore` ignora `evidence/*`); o registro descreve comandos e resultados para reprodução. Não afirmar que isso instala os quatro frameworks upstream completos; esses permanecem opcionais e manuais.
 
 ## Comportamento desejado do Planner
 
@@ -46,6 +46,6 @@ Test-Path "$env:USERPROFILE\.config\opencode\skills\hybrid-development\SKILL.md"
 Test-Path "$env:USERPROFILE\.config\opencode\skills\using-superpowers\SKILL.md"
 ```
 
-Ambos devem retornar `True` na instalação padrão atual (sem `-NoCoreSkills`). A verificação futura para BMAD/Addy deve seguir os nomes **efetivamente escolhidos** no empacotamento #237 e incluir descoberta real pelo loader de skills do OpenCode.
+Ambos devem retornar `True` na instalação padrão atual (sem `-NoCoreSkills`). Os nomes atuais das oito skills estão listados no README; para validar discovery, carregue uma skill pelo mecanismo real do runtime. A evidência local acima comprova o carregamento real de uma skill, não a enumeração de todas as oito.
 
 Para atualizar: `git pull`, `.\install.ps1 -Runtime V2 -WhatIf` e `.\install.ps1 -Runtime V2`. Consulte [a instalação completa](INSTALLATION.md) e o [roteador atual](../skills-core/hybrid-development/SKILL.md).

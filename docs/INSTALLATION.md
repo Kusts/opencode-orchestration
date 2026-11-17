@@ -317,4 +317,4 @@ Flags em `source/registry/capability-flags.json` nascem todas `false`.
 
 ## Integração das quatro metodologias de planejamento
 
-Consulte **[PLANNING-METHODS.md](PLANNING-METHODS.md)** para as quatro origens, links de instalação oficiais, comandos nativos opcionais, roteamento pelo Planner e estado de empacotamento automático. **Hoje Superpowers/Matt estão adaptados no bundle; BMAD/Addy ainda não vêm automaticamente**, dependência [#237](https://github.com/Kusts/opencode-orchestration/issues/237). O comando de instalação principal permanece `.\install.ps1 -Runtime V2`.
+Consulte **[PLANNING-METHODS.md](PLANNING-METHODS.md)** para as quatro origens, links oficiais e seleção pelo Planner. O pacote distribui oito `skills-core` com técnicas adaptadas de Superpowers, BMAD, Matt Pocock e Addy Osmani; a instalação padrão as inclui offline. Isso não instala os frameworks upstream completos. Os comandos oficiais upstream são opções manuais separadas, nunca executadas pelo instalador. O comando principal permanece `.\install.ps1 -Runtime V2`.

@@ -85,6 +85,30 @@ try {
     $r6 = Get-OrchestrationPreflight -Objective 'audit authentication and authorization, fix jwt session handling' -TaskType 'review' -Domain 'security' -Risk 'high' -ReadWrite 'write'
     Assert-That ([string]$r6.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') '6 security => DETERMINISTIC_FALLBACK' ($r6 | ConvertTo-Json -Compress)
     Assert-That ([string]$r6.orchestration_decision -cne 'BLOCKED') '6 security is not BLOCKED' ([string]$r6.orchestration_decision)
+    $r6a = Get-OrchestrationPreflight -Objective 'analyze security permission authority and credential handling documentation' -TaskType 'analysis' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That ($r6a.orchestration_decision -ceq 'MULTI_WORKER') '6a read-only security/authority analysis is not hard-excluded' ($r6a | ConvertTo-Json -Compress)
+    $r6b = Get-OrchestrationPreflight -Objective 'review security controls without authority' -TaskType 'review' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That ($r6b.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') '6b missing authority remains fail-closed' ($r6b | ConvertTo-Json -Compress)
+    $r6aa = Get-OrchestrationPreflight -Objective 'review security policy boundaries' -TaskType 'implementation' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (($r6aa.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6aa.fallback_reason -like 'hard_exclusion_*')) '6aa implementation metadata does not enable read-analysis exception' ($r6aa | ConvertTo-Json -Compress)
+    $r6ab = Get-OrchestrationPreflight -Objective 'review security policy boundaries' -TaskType 'analysis' -Domain 'code' -Risk 'low'
+    Assert-That (($r6ab.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6ab.fallback_reason -like 'hard_exclusion_*')) '6ab unspecified ReadWrite stays excluded' ($r6ab | ConvertTo-Json -Compress)
+    $r6ac = Get-OrchestrationPreflight -Objective 'analyze production deployment logs' -TaskType 'analysis' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (($r6ac.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6ac.fallback_reason -ceq 'hard_exclusion_infra_mutation')) '6ac production deployment logs remain conservatively excluded' ($r6ac | ConvertTo-Json -Compress)
+    $r6ad = Get-OrchestrationPreflight -Objective 'rotate credentials' -TaskType 'analysis' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (($r6ad.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6ad.fallback_reason -ceq 'hard_exclusion_credentials')) '6ad read metadata cannot mask credential rotation verb' ($r6ad | ConvertTo-Json -Compress)
+    $r6ae = Get-OrchestrationPreflight -Objective 'grant permission to agent' -TaskType 'analysis' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (($r6ae.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6ae.fallback_reason -ceq 'hard_exclusion_permission_change')) '6ae read metadata cannot mask permission grant verb' ($r6ae | ConvertTo-Json -Compress)
+    $r6ag = Get-OrchestrationPreflight -Objective 'renew api key' -TaskType 'analysis' -Domain 'code' -Risk 'low' -ReadWrite 'read'
+    Assert-That (($r6ag.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6ag.fallback_reason -like 'hard_exclusion_*')) '6ag read metadata cannot mask API key renewal verb' ($r6ag | ConvertTo-Json -Compress)
+    $r6af = Get-OrchestrationPreflight -Objective 'analyze security permission authority and credential handling documentation' -TaskType 'analysis' -Domain 'code' -Risk 'low' -ReadWrite ' READ '
+    Assert-That ($r6af.orchestration_decision -ceq 'MULTI_WORKER') '6af ReadWrite trims and lowercases before read-analysis exception' ($r6af | ConvertTo-Json -Compress)
+    $r6c = Get-OrchestrationPreflight -Objective 'deploy credentials to production' -TaskType 'implementation' -Domain 'infra' -Risk 'high' -ReadWrite 'write'
+    Assert-That (($r6c.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6c.fallback_reason -ceq 'hard_exclusion_credentials')) '6c production credential mutation keeps original hard-exclusion token' ($r6c | ConvertTo-Json -Compress)
+    $r6d = Get-OrchestrationPreflight -Objective 'analyze retry behavior and report evidence' -TaskType 'analysis' -Domain 'backend' -Risk 'medium' -ReadWrite 'read' -Allowlist @()
+    Assert-That (($r6d.orchestration_decision -ceq 'BLOCKED') -and ($r6d.fallback_reason -ceq 'empty_allowlist') -and ($r6d.fallback_reason -cne 'vague_task_underspecified')) '6d empty allowlist remains an actionable operational block' ($r6d | ConvertTo-Json -Compress)
+    $r6e = Get-OrchestrationPreflight -Objective 'analyze retry behavior and report evidence' -TaskType 'analysis' -Domain 'backend' -Risk 'medium' -ReadWrite 'read' -RegistryOk $false
+    Assert-That (($r6e.orchestration_decision -ceq 'DETERMINISTIC_FALLBACK') -and ($r6e.fallback_reason -ceq 'router_unhealthy')) '6e invalid registry state has operational reason' ($r6e | ConvertTo-Json -Compress)
 
     # 7) Router unavailable => DETERMINISTIC_FALLBACK (never silent bypass)
     $r7 = Get-OrchestrationPreflight -Objective 'implement bounded edit for retry queue' -TaskType 'implementation' -Domain 'backend' -Risk 'medium' -ReadWrite 'write' -RouterHealthy $false
