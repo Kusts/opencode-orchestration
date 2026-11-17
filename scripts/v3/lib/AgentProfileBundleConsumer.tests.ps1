@@ -33,14 +33,14 @@ function New-FixtureBundleObject {
     )
     return [ordered]@{
         schema = 'agent-profile-bundle/v1'
-        bundle_id = 'agent-config:fixture01'
-        source_repository = 'kust-projetos/agent-config'
+        bundle_id = 'opencode-orchestration:fixture01'
+        source_repository = 'Kusts/opencode-orchestration'
         source_commit_sha = 'a' * 40
         target_runtime = 'opencode-v2'
         compatibility = [ordered]@{ dialect = 'v2'; minimum_capabilities = @('agents', 'permissions') }
         policy_refs = [ordered]@{ agent_profiles = 'p'; native_permissions = 'n'; risk_requirements = 'r'; capability_catalog = 'c' }
         agent_profiles = $agents
-        managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'agent-config:global'; owner = 'agent-config' })
+        managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'orchestration:global'; owner = 'opencode-orchestration' })
         legacy_compatibility = [ordered]@{ v1_mutation = $false }
         format_version = 1
     }
@@ -69,6 +69,12 @@ try {
     $load = Read-AgentProfileBundle -LiteralPath $fx
     Assert-ConsumerTrue ($load.Ok -and ($load.Code -ceq 'BUNDLE_OK')) 'fixture BUNDLE_OK'
     Assert-ConsumerTrue ((@($load.Bundle.agent_profiles)).Count -eq 3) '3 profiles loaded'
+
+    # Declared external source and namespace owner are data, not hardcoded trust gates.
+    $external = New-FixtureBundleObject; $external.source_repository = 'example/profiles'
+    $external.managed_paths[0].owner = 'example'
+    $px = Join-Path $tmpRoot 'external.json'; Write-FixtureBundle $external $px | Out-Null
+    Assert-ConsumerTrue ((Read-AgentProfileBundle -LiteralPath $px).Ok) 'declared source and owner accepted'
 
     # GREEN 2: resolve preserves mode + native permissions.
     $r = Resolve-BundleAgentProfile -Bundle $load.Bundle -AgentId 'reviewer'

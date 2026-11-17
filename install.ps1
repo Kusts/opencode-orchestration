@@ -1313,34 +1313,15 @@ else {
   $desired = $tmplRes.Desired
 }
 
-# O2.1 owner detection happens BEFORE any bundle override: Active/Canary
-# decisions and the agents-md merge all depend on it.
 $agentsTargetPath = Join-Path $ocDir 'AGENTS.md'
 $existingAgentsMd = $null
 if (Test-Path -LiteralPath $agentsTargetPath -PathType Leaf) { $existingAgentsMd = Read-Utf8 $agentsTargetPath }
-# O2.1: Config owns the global text when its namespaced marker is present.
-# The installer then writes NO global text, NO agents/*.md editable forks and
-# NO agents.*.permissions (Config canonical). Standalone mode keeps installing
-# snapshots, recorded as SNAPSHOT_COMPAT in the manifest.
-$ConfigOwnsGlobal = (($null -ne $existingAgentsMd) -and ($existingAgentsMd -match '<!-- agent-config:global:start -->') -and ($existingAgentsMd -match '<!-- agent-config:global:end -->'))
-if ($ConfigOwnsGlobal) {
-  Write-Host '[install] Config owner detectado (agent-config:global): texto global, perfis agents/* e agents.*.permissions NAO serao escritos.' -ForegroundColor Cyan
-}
-if ($ConfigOwnsGlobal -and (-not $IsV2)) {
-  Write-Host '[install] Config owner (agent-config:global) exige o caminho V2: instalacao V1 recusada (fail-closed; V1 frozen). Use -Runtime V2.' -ForegroundColor Red
-  exit 3
-}
 
-# O7.2 Active: permissions sourced from the bundle (standalone V2 only).
-# Refused when Config owns the global text (its reconciler is canonical),
-# when runtime is not V2, or on any divergence (unknown agent / mode
+# O7.2 Active: permissions sourced from the bundle (V2 only).
+# Refused when runtime is not V2, or on any divergence (unknown agent / mode
 # mismatch). Bodies still come from repo snapshots (bundle is metadata).
 $bundleActive = $null
 if ($BundleMode -ieq 'Active') {
-  if ($ConfigOwnsGlobal) {
-    Write-Host '[bundle-active] recusado: Config owns agents.*.permissions (fail-closed).' -ForegroundColor Red
-    exit 3
-  }
   if (-not $IsV2) {
     Write-Host '[bundle-active] exige -Runtime V2 (fail-closed).' -ForegroundColor Red
     exit 3
@@ -1486,27 +1467,14 @@ $managedPaths = @()
 # consumers; o pacote nao adota mais nenhuma chave (ownership trim).
 $adoptedNow = @()
 if ($null -eq $existingJsonObj) {
-  if ($ConfigOwnsGlobal -and $IsV2) {
-    $mergedObj = (($desired | ConvertTo-Json -Depth 32) | ConvertFrom-Json)
-    if (($null -ne $mergedObj) -and (Has-Member $mergedObj 'agents') -and ($null -ne $mergedObj.agents)) {
-      foreach ($ak in @($mergedObj.agents.PSObject.Properties.Name)) {
-        Remove-Prop $mergedObj.agents.$ak 'permissions'
-      }
-    }
-  }
-  else {
-    $mergedObj = $desired
-  }
+  $mergedObj = $desired
   if ($IsV2) { $managedPaths = @(Get-DesiredManagedPathsV2 $desired) }
   else { $managedPaths = @(Get-DesiredManagedPaths $desired) }
-  if ($ConfigOwnsGlobal -and $IsV2) {
-    $managedPaths = @($managedPaths | Where-Object { $_ -notmatch '\.permissions$' })
-  }
 }
 else {
   $clone = (Strip-JsoncComments $existingJsonRaw) | ConvertFrom-Json
   if ($IsV2) {
-    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired -SkipPermissions:$ConfigOwnsGlobal
+    $mergeRes = Merge-ManagedOpencodeConfigV2 $clone $desired
     $mergedObj = $mergeRes.Config
     $managedPaths = @($mergeRes.ManagedPaths)
   }
@@ -1523,14 +1491,9 @@ $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 # SourcePath na fonte canonica, StagePath e DestinationPath derivados por
 # Join-Path a partir do RelativePath (nunca por Substring de FullName).
 $ops = New-Object System.Collections.ArrayList
-if ($ConfigOwnsGlobal) {
-  Write-Host '[install] SKIP agents-md/agents: dono agent-config (sem fork editavel; snapshot nao instalado).' -ForegroundColor Cyan
-}
-else {
-  [void]$ops.Add(@{ Component = 'agents-md'; RelativePath = 'AGENTS.md'; StageText = $agentsMdRes.Text; Label = 'AGENTS.md' })
-  foreach ($a in $agentFiles) {
-    [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
-  }
+[void]$ops.Add(@{ Component = 'agents-md'; RelativePath = 'AGENTS.md'; StageText = $agentsMdRes.Text; Label = 'AGENTS.md' })
+foreach ($a in $agentFiles) {
+  [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
@@ -1585,17 +1548,9 @@ function File-Plan([string]$Dst, [string]$DesiredText, [string]$Label) {
   if ($a -eq $b) { Add-Plan 'SKIP' ($Label + ' (inalterado)') }
   else { Add-Plan 'UPDATE' $Label }
 }
-if ($ConfigOwnsGlobal) {
-  Add-Plan 'SKIP' 'AGENTS.md (dono agent-config:global; texto global nao aplicado)'
-  foreach ($a in $agentFiles) {
-    Add-Plan 'SKIP' (('agents/' + $a.Name) + ' (dono agent-config; sem fork editavel)')
-  }
-}
-else {
-  File-Plan $agentsTargetPath $agentsMdRes.Text 'AGENTS.md (bloco markered)'
-  foreach ($a in $agentFiles) {
-    File-Plan (Join-Path $ocDir ('agents\' + $a.Name)) $a.Text ('agents/' + $a.Name)
-  }
+File-Plan $agentsTargetPath $agentsMdRes.Text 'AGENTS.md (bloco markered)'
+foreach ($a in $agentFiles) {
+  File-Plan (Join-Path $ocDir ('agents\' + $a.Name)) $a.Text ('agents/' + $a.Name)
 }
 if (-not $NoCoreSkills) {
   foreach ($s in $skillNames) {
@@ -1783,6 +1738,7 @@ if ($WhatIfPreference) { $isWhatIf = $true }
 if ($isWhatIf) {
   Write-Host '=== INSTALL PLAN (WhatIf, nenhuma escrita) ===' -ForegroundColor Cyan
   foreach ($l in $plan) { Write-Host $l -ForegroundColor DarkGray }
+  Write-Host '[MANIFEST] config_ownership=orchestration-snapshot'
   Write-Host ('Plano: ' + $plan.Count + ' recurso(s). Nenhuma escrita realizada.') -ForegroundColor Cyan
   exit 0
 }
@@ -1853,8 +1809,8 @@ try {
       $cEnd = ([regex]::Matches($stAgents, [regex]::Escape($MarkEnd))).Count
       if (($cStart -ne 1) -or ($cEnd -ne 1)) { $stageErrs += ('stage AGENTS.md markers invalidos (start=' + $cStart + ' end=' + $cEnd + ').') }
     }
-    elseif (-not $ConfigOwnsGlobal) {
-      $stageErrs += 'stage AGENTS.md ausente sem Config owner (fail-closed).'
+    else {
+      $stageErrs += 'stage AGENTS.md ausente (fail-closed).'
     }
     if ((Count-TokenMarkers $stageAllText) -ne 0) { $stageErrs += 'stage contem tokens {{...}} nao resolvidos.' }
     if ($stageErrs.Count -gt 0) {
@@ -2050,9 +2006,6 @@ try {
     $snapshotPaths = @()
     if ($IsV2) { $snapshotPaths = @(Get-DesiredManagedPathsV2 $desired) }
     else { $snapshotPaths = @(Get-DesiredManagedPaths $desired) }
-    if ($ConfigOwnsGlobal -and $IsV2) {
-      $snapshotPaths = @($snapshotPaths | Where-Object { $_ -notmatch '\.permissions$' })
-    }
     foreach ($mp in $snapshotPaths) {
       try {
         if ($mp -eq 'agent.build.model=ABSENT') { $snapshot[$mp] = 'ABSENT'; continue }
@@ -2173,9 +2126,9 @@ try {
       bundle_shadow = $bundleShadow
       bundle_canary = $bundleCanary
       bundle_active = $bundleActive
-      config_ownership = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
-      skipped_namespaces = $(if ($ConfigOwnsGlobal) { @('AGENTS.md:global', 'agents/*.md profiles', 'agents.*.permissions') } else { @() })
-      snapshot_provenance = $(if ($ConfigOwnsGlobal) { 'consumer-shadow (no editable fork installed)' } else { 'SNAPSHOT_COMPAT (generated copies; not editable sources)' })
+      config_ownership = 'orchestration-snapshot'
+      skipped_namespaces = @()
+      snapshot_provenance = 'SNAPSHOT_COMPAT (generated copies; not editable sources)'
       managed_files = @($managedFiles)
       managed_config_paths = @($managedPaths)
       adopted_paths = @($adoptedUnion)

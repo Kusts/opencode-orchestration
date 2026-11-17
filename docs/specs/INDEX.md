@@ -14,9 +14,9 @@
 | [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-OBJECTIVE-RUNTIME-CONTRACT.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-OBJECTIVE-RUNTIME-CONTRACT.md) | active | Contrato de runtime do executor produtivo mínimo (opção B) |
 | [UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-WIRING-MATRIX.md](UNIVERSAL-AUTONOMOUS-ORCHESTRATION-v0.1.0-WIRING-MATRIX.md) | active | Matriz componente → arquivo → estágio → gap para runtime-proven |
 
-| [AGENT-CONFIG-INTEROP-PLAN.md](../plans/AGENT-CONFIG-INTEROP-PLAN.md) | proposed | Plano consumidor O0–O7: bundle Config, owner por namespace, risk/gates, action executor, CI/resume, rollout |
-| [SPEC interoperabilidade — Agent Config](https://github.com/kust-projetos/agent-config/blob/docs/interop-config-orchestration-20261019/docs/agent/AGENT-CONFIG-ORCHESTRATION-INTEROP-SPEC.md) | proposed | Contrato normativo entre repositórios, 28 cenários de aceite |
-| [ADR-INTEROP-001 — Agent Config](https://github.com/kust-projetos/agent-config/blob/docs/interop-config-orchestration-20261019/docs/governance/ADR-INTEROP-001-SINGLE-OWNER-CONFIG-EXECUTION.md) | proposed | Config canônico versus Orquestração executora, migração sem overwrite |
+| [AGENT-CONFIG-INTEROP-PLAN.md](../plans/AGENT-CONFIG-INTEROP-PLAN.md) | historical / retired | Plano de interoperabilidade aposentado; mantido apenas como histórico |
+| SPEC interoperabilidade — Agent Config | historical / retired | Contrato histórico entre repositórios (não normativo para o instalador atual) |
+| ADR-INTEROP-001 — Agent Config | historical / retired | Decisão histórica de ownership, substituída pela instalação nativa independente |
 
 Nota: os documentos `historical` pertencem ao programa V3.1, encerrado com
 closure `PASS` em 2026-10-06 — não são reescritos. Em caso de divergência,

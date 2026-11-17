@@ -1,14 +1,14 @@
 <#!
 .SYNOPSIS
-    Tests for installer Config-ownership recognition (PLAN-ORCH O2.1/O2.4).
+    Tests for standalone installer behavior regardless of foreign markers.
 .DESCRIPTION
     Run: pwsh -NoProfile -File <this-file> from anywhere (uses -TargetHome).
     Exit 0/1. All homes are TEMP fixtures; the live config is never touched.
     PS 5.1 compatible (no multi-segment Join-Path, no param block).
     - T1 standalone: full install + SNAPSHOT_COMPAT provenance.
-    - T2 Config-owned: global text, agent forks and agents.*.permissions skipped.
+    - T2 foreign marker does not suppress native artifacts or permissions.
     - T3 idempotent re-install.
-    - T4 Orch-then-Config order converges to ownership mode.
+    - T4 foreign marker remains an orchestration snapshot.
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -66,23 +66,23 @@ try {
   $m1 = Read-Manifest $h1
   Assert-OwnTrue (($null -ne $m1) -and ($m1.config_ownership -ceq 'orchestration-snapshot') -and ($m1.snapshot_provenance -match 'SNAPSHOT_COMPAT')) 'T1 manifest SNAPSHOT_COMPAT' ($m1.snapshot_provenance)
 
-  # --- T2: Config-owned home is respected.
+  # --- T2: foreign marker does not suppress native installation.
   $h2 = New-FixtureHome 'owned'
   $cfgGlobal = "<!-- agent-config:global:start -->`n# Global`n<!-- agent-config:global:end -->`n"
   Write-Utf8 (Oc-File $h2 @('AGENTS.md')) $cfgGlobal
   Write-Utf8 (Oc-File $h2 @('opencode.json')) ((@{ plugin = @('keep-me'); permissions = @(@{ action = 'shell'; resource = 'mine *'; effect = 'allow' }); agents = @{ build = @{ mode = 'primary'; permissions = @(@{ action = 'subagent'; resource = 'x'; effect = 'deny' }) } } } | ConvertTo-Json -Depth 10))
   $o2 = Invoke-Install $h2 @()
   Assert-OwnTrue ($LASTEXITCODE -eq 0) 'T2 owned install exit 0' ($o2 | Select-Object -Last 1)
-  Assert-OwnTrue (((Get-Content -LiteralPath (Oc-File $h2 @('AGENTS.md')) -Raw) -ceq $cfgGlobal)) 'T2 global text untouched'
-  Assert-OwnTrue (-not (Test-Path -LiteralPath (Oc-File $h2 @('agents')))) 'T2 no editable agent forks'
+  Assert-OwnTrue (((Get-Content -LiteralPath (Oc-File $h2 @('AGENTS.md')) -Raw) -match 'opencode-orchestration:start')) 'T2 native AGENTS block installed'
+  Assert-OwnTrue (@(Get-ChildItem (Oc-File $h2 @('agents')) -Filter '*.md' -ErrorAction SilentlyContinue).Count -ge 19) 'T2 agent snapshots installed'
   $after2 = Get-Content -LiteralPath (Oc-File $h2 @('opencode.json')) -Raw | ConvertFrom-Json
   Assert-OwnTrue ((@($after2.permissions | Where-Object { $_.resource -ceq 'mine *' })).Count -eq 1) 'T2 top-level user permissions intact'
-  Assert-OwnTrue ((@($after2.agents.build.permissions | Where-Object { $_.resource -ceq 'x' })).Count -eq 1) 'T2 agents.*.permissions untouched by installer'
+  Assert-OwnTrue (@($after2.agents.build.permissions).Count -gt 0) 'T2 native agents.*.permissions installed'
   Assert-OwnTrue (($after2.plugin -contains 'keep-me')) 'T2 user plugin key preserved'
   $m2 = Read-Manifest $h2
-  Assert-OwnTrue (($null -ne $m2) -and ($m2.config_ownership -ceq 'agent-config') -and ((@($m2.skipped_namespaces)).Count -eq 3)) 'T2 manifest records ownership+skips'
+  Assert-OwnTrue (($null -ne $m2) -and ($m2.config_ownership -ceq 'orchestration-snapshot') -and ((@($m2.skipped_namespaces)).Count -eq 0)) 'T2 manifest records standalone ownership'
 
-  # --- T3: idempotent re-install on owned home.
+  # --- T3: idempotent re-install on marker-origin home.
   $before3 = Get-Content -LiteralPath (Oc-File $h2 @('opencode.json')) -Raw
   $o3 = Invoke-Install $h2 @()
   Assert-OwnTrue (($LASTEXITCODE -eq 0) -and (((Get-Content -LiteralPath (Oc-File $h2 @('opencode.json')) -Raw) -ceq $before3))) 'T3 re-install stable' ($o3 | Select-Object -Last 1)
@@ -98,7 +98,7 @@ try {
   $o4b = Invoke-Install $h4 @()
   $postPerms = ((Get-Content -LiteralPath (Oc-File $h4 @('opencode.json')) -Raw | ConvertFrom-Json).agents.build.permissions | ConvertTo-Json -Compress)
   $m4 = Read-Manifest $h4
-  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($prePerms -ceq $postPerms) -and ($m4.config_ownership -ceq 'agent-config')) 'T4 converges to ownership mode' ($o4b | Select-Object -Last 1)
+  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and ($prePerms -ceq $postPerms) -and ($m4.config_ownership -ceq 'orchestration-snapshot')) 'T4 stays standalone despite foreign marker' ($o4b | Select-Object -Last 1)
 
   # --- T5: unresolved token in user area fails stage validation.
   $h5 = New-FixtureHome 'token'
@@ -108,16 +108,16 @@ try {
   if (-not (Test-Path -LiteralPath $t5cfg)) { $t5cfg = Oc-File $h5 @('opencode.jsonc') }
   Assert-OwnTrue (($LASTEXITCODE -ne 0) -and (($o5 -join "`n") -match 'STAGE INVALIDO|tokens') -and (-not (Test-Path -LiteralPath $t5cfg))) 'T5 user-area token fails closed' ($o5 -join "`n" | Select-Object -Last 2)
 
-  # --- T6: Config-owned home + V1 runtime refused before any write.
+  # --- T6: foreign marker does not block V1 install.
   $h6 = New-FixtureHome 'v1refuse'
   Write-Utf8 (Oc-File $h6 @('AGENTS.md')) "<!-- agent-config:global:start -->`n# Global`n<!-- agent-config:global:end -->`n"
   $a6 = @('-NoProfile', '-File', $installer, '-TargetHome', $h6, '-Runtime', 'V1')
   $o6 = (& pwsh @a6 2>&1)
   $t6cfg = Oc-File $h6 @('opencode.json')
   if (-not (Test-Path -LiteralPath $t6cfg)) { $t6cfg = Oc-File $h6 @('opencode.jsonc') }
-  Assert-OwnTrue (($LASTEXITCODE -eq 3) -and (-not (Test-Path -LiteralPath $t6cfg)) -and ((Get-Content -LiteralPath (Oc-File $h6 @('AGENTS.md')) -Raw) -match 'agent-config:global:start')) 'T6 V1 refused on Config-owned home' ($o6 -join "`n" | Select-Object -Last 2)
+  Assert-OwnTrue (($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath $t6cfg) -and ((Get-Content -LiteralPath (Oc-File $h6 @('AGENTS.md')) -Raw) -match 'opencode-orchestration:start')) 'T6 V1 installs despite foreign marker' ($o6 -join "`n" | Select-Object -Last 2)
 
-  # --- T7: start-only marker (incomplete) is NOT Config-owned; standalone hardening applies.
+  # --- T7: start-only foreign marker does not suppress standalone install.
   $h7 = New-FixtureHome 'startonly'
   Write-Utf8 (Oc-File $h7 @('AGENTS.md')) "<!-- agent-config:global:start -->`n# Partial, no end marker`n"
   $o7 = Invoke-Install $h7 @()
