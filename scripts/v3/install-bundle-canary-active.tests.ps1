@@ -38,13 +38,13 @@ function Write-Utf8($path, $text) {
 function Write-Bundle($path, $mode, $id) {
   $obj = [ordered]@{
     schema = 'agent-profile-bundle/v1'; bundle_id = $id
-    source_repository = 'kust-projetos/agent-config'; source_commit_sha = 'd' * 40
+    source_repository = 'Kusts/opencode-orchestration'; source_commit_sha = 'd' * 40
     target_runtime = 'opencode-v2'
     compatibility = [ordered]@{ dialect = 'v2'; minimum_capabilities = @('agents', 'permissions') }
     policy_refs = [ordered]@{ agent_profiles = 'p'; native_permissions = 'n'; risk_requirements = 'r'; capability_catalog = 'c' }
     agent_profiles = @(
       [ordered]@{ agent_id = 'coder'; mode = $mode; native_permissions = @([ordered]@{ action = 'edit'; resource = '*'; effect = 'deny' }) })
-    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'agent-config:global'; owner = 'agent-config' })
+    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'orchestration:global'; owner = 'opencode-orchestration' })
     legacy_compatibility = [ordered]@{ v1_mutation = $false }
     format_version = 1
   }
@@ -94,14 +94,14 @@ try {
   $bperms = @($tmplRaw.agents.build.permissions)
   [array]::Reverse($bperms)
   $bobj = [ordered]@{
-    schema = 'agent-profile-bundle/v1'; bundle_id = 'agent-config:order01'
-    source_repository = 'kust-projetos/agent-config'; source_commit_sha = 'e' * 40
+    schema = 'agent-profile-bundle/v1'; bundle_id = 'opencode-orchestration:order01'
+    source_repository = 'Kusts/opencode-orchestration'; source_commit_sha = 'e' * 40
     target_runtime = 'opencode-v2'
     compatibility = [ordered]@{ dialect = 'v2'; minimum_capabilities = @('agents', 'permissions') }
     policy_refs = [ordered]@{ agent_profiles = 'p'; native_permissions = 'n'; risk_requirements = 'r'; capability_catalog = 'c' }
     agent_profiles = @(
       [ordered]@{ agent_id = 'build'; mode = 'primary'; native_permissions = @($bperms | ForEach-Object { [ordered]@{ action = [string]$_.action; resource = [string]$_.resource; effect = [string]$_.effect } }) })
-    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'agent-config:global'; owner = 'agent-config' })
+    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'orchestration:global'; owner = 'opencode-orchestration' })
     legacy_compatibility = [ordered]@{ v1_mutation = $false }
     format_version = 1
   }
@@ -133,11 +133,11 @@ try {
   $o4 = (& $script:engine -NoProfile -File $installer -TargetHome $h4 -Runtime V2 -BundleMode Active -BundlePath $bmode 2>&1)
   Assert-B (($LASTEXITCODE -eq 2) -and (($o4 -join "`n") -match 'DIVERGENT') -and ($null -eq (Read-InstalledCfg $h4))) 'A2 mode mismatch refused clean' ($o4 | Select-Object -Last 1)
 
-  # --- A3: Active on Config-owned home => exit 3.
+  # --- A3: Active on foreign-marker home is not blocked.
   $h5 = New-Home $base 'a3'
   Write-Utf8 (Join-Under $h5 @('.config', 'opencode', 'AGENTS.md')) "<!-- agent-config:global:start -->`n# G`n<!-- agent-config:global:end -->`n"
   $o5 = (& $script:engine -NoProfile -File $installer -TargetHome $h5 -Runtime V2 -BundleMode Active -BundlePath $bfx 2>&1)
-  Assert-B (($LASTEXITCODE -eq 3)) 'A3 owned home refused' ($o5 | Select-Object -Last 1)
+  Assert-B (($LASTEXITCODE -eq 0) -and ($null -ne (Read-InstalledCfg $h5)) -and ((Read-Manifest $h5).config_ownership -ceq 'orchestration-snapshot')) 'A3 foreign-marker home accepts active bundle' ($o5 | Select-Object -Last 1)
 
   # --- A4: Active invalid bundle => exit 2.
   $h6 = New-Home $base 'a4'

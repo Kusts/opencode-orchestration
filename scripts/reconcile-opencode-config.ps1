@@ -169,22 +169,7 @@ $status = 'MISSING'
 $candidate = $null
 if ($null -ne $currentHash) {
     $existing = Read-Utf8 $targetPath
-    # C6.3-1: Config owns the global text when its namespaced marker is
-    # present. This reconciler then writes NOTHING (mirror of install.ps1
-    # O2 ownership): preview reports SKIP, apply exits 0 without touching
-    # the target. Standalone homes are unaffected.
-    $cfgOwnStart = '<!-- agent-config:global:start -->'
-    $cfgOwnEnd = '<!-- agent-config:global:end -->'
-    if ($existing.Contains($cfgOwnStart) -and $existing.Contains($cfgOwnEnd)) {
-        Write-Host '' ; Write-Host '=== OPENCODE CONFIG RECONCILIATION ===' -ForegroundColor Cyan
-        if ($existing.Contains($markStart) -and $existing.Contains($markEnd)) {
-            Write-Host ('[RETIRE_REQUIRED] ' + $targetPath + ' (bloco legado opencode-orchestration; execute install.ps1 para retirar)') -ForegroundColor Yellow
-        }
-        Write-Host ('[SKIP] ' + $targetPath + ' (owner=agent-config:global; texto global nao aplicado)') -ForegroundColor Cyan
-        if ($Apply) { Write-Host 'Apply skipped: Config owner. Nothing was written.' -ForegroundColor Cyan }
-        else { Write-Host 'Preview complete. No active file was changed.' -ForegroundColor Cyan }
-        exit 0
-    }
+
     $hasMarkers = $existing.Contains($markStart) -and $existing.Contains($markEnd)
     if ($hasMarkers) {
         $pattern = [regex]::Escape($markStart) + '[\s\S]*?' + [regex]::Escape($markEnd)

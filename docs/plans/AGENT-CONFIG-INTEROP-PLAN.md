@@ -1,5 +1,9 @@
 # PLAN-ORCH — Consumir Agent Config e assumir execução de Quality Gates
 
+> **HISTÓRICO / APOSENTADO:** Este plano descreve uma integração condicional
+> que não faz mais parte do comportamento operacional. O instalador da
+> Orquestração é nativo e independente do agent-config.
+
 **Data:** 2026-10-19
 **Status:** READY_FOR_IMPLEMENTATION_PLANNING (sem runtime alterado)
 **Repo executor:** `Kusts/opencode-orchestration`

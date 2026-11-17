@@ -61,7 +61,7 @@ Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
   `source/adapters/opencode.md` com modelos resolvidos, dentro dos
   marcadores `<!-- opencode-orchestration:start -->` /
   `<!-- opencode-orchestration:end -->`. O resto do arquivo é preservado.
-- `~/.config/opencode/agents/*.md` — 19 perfis worker canônicos da Orquestração (bloco `orchestration:` do frontmatter removido na instalação; o canônico com o bloco vive no repo). Com marcador completo `agent-config:global`, o texto global permanece do Agent Config, mas a Orquestração instala os perfis e o bloco `agents`; `permissions` de topo, `mcp` e demais chaves user/Agent Config são preservadas.
+- `~/.config/opencode/agents/*.md` — 19 perfis worker canônicos da Orquestração (bloco `orchestration:` do frontmatter removido na instalação; o canônico com o bloco vive no repo). A instalacao e nativa e independente: a Orquestracao instala o texto global, os perfis e o bloco `agents`, preservando `permissions` de topo, `mcp` e demais chaves de usuario.
 - `~/.config/opencode/plugins/orchestration-enforcement.js` — bundle
   autocontido do plugin dual-runtime (fonte única com adaptadores V1/V2 e
   lógica compartilhada); enforcement por sessão; telemetria em
@@ -147,14 +147,10 @@ git pull
 
 O instalador é idempotente e ownership-aware: só atualiza o que pertence ao
 pacote; customização sua com hash divergente é mantida (o uninstall avisa
-com `KEEP` em vez de remover). Ownership (Interop Agent Config, gates O0–O6
-fechados): com marker `agent-config:global` presente, o Agent Config é dono
-do texto global, permissões top-level, MCPs, skills compartilhadas e demais
-runtimes; a Orquestração é dona dos 19 perfis `agents/*.md`, do bloco
-`agents` e da execução, delegação e modelos de perfil. O instalador preserva
-essa divisão; o manifest registra `config_ownership` + proveniência.
-`models.jsonc` e credenciais permanecem do usuário. V1 permanece frozen.
-Cutover (desligar cópia global) pendente de decisão P1.
+com `KEEP` em vez de remover). A instalação é nativa e independente do
+agent-config: instala seus próprios artefatos e registra
+`config_ownership=orchestration-snapshot` no manifest.
+V1 permanece frozen.
 
 ## Remover
 

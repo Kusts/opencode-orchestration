@@ -1,10 +1,10 @@
 <#!
 .SYNOPSIS
-    Tests for reconcile-opencode-config.ps1 Config-ownership guard (C6.3-1).
+    Tests that reconcile ignores foreign ownership markers.
 .DESCRIPTION
     Run: pwsh -NoProfile -File <this-file> (or powershell 5.1). Exit 0/1.
     TEMP fixtures only; live config never touched. PS 5.1 compatible.
-    - R1/R2: Config-owned home => preview+apply exit 0, SKIP, target intact.
+    - R1: foreign marker => normal preview without changing target.
     - R3: markerless home => normal plan, target intact (preview).
     - R4: legacy orchestration markers => normal flow, no SKIP.
 #>
@@ -40,18 +40,18 @@ function Invoke-Reco($h, [string[]]$extra) {
 $base = Join-Path ([IO.Path]::GetTempPath()) ('reconcile-own-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $base -Force | Out-Null
 try {
-  # --- R1: Config-owned preview => SKIP, intact.
+  # --- R1: foreign marker => normal preview, intact.
   $h1 = New-Root $base 'owned'
   $t1 = Join-Path (Home-Of $h1) '.config\opencode\AGENTS.md'
   $cfg = "<!-- agent-config:global:start -->`n# Global`n<!-- agent-config:global:end -->`n"
   Write-Utf8NoBomLocal $t1 $cfg
   $o1 = Invoke-Reco $h1 @()
-  Assert-R (($LASTEXITCODE -eq 0) -and (($o1 -join "`n") -match 'SKIP') -and (((Get-Content -LiteralPath $t1 -Raw) -ceq $cfg))) 'R1 owned preview SKIP intact' ($o1 | Select-Object -Last 1)
+  Assert-R (($LASTEXITCODE -eq 0) -and (($o1 -join "`n") -match 'action (append-block|replace-block)') -and ((($o1 -join "`n") -notmatch 'dono agent-config')) -and (((Get-Content -LiteralPath $t1 -Raw) -ceq $cfg))) 'R1 foreign marker preview reconciles' ($o1 | Select-Object -Last 1)
 
-  # --- R2: Config-owned apply => exit 0, intact, no backup written.
+  # --- R2: apply to TEMP fixture reconciles foreign marker normally.
   $o2 = Invoke-Reco $h1 @('-Apply')
   $leftovers = @(Get-ChildItem (Join-Path $h1 'backups') -Recurse -ErrorAction SilentlyContinue)
-  Assert-R (($LASTEXITCODE -eq 0) -and (((Get-Content -LiteralPath $t1 -Raw) -ceq $cfg)) -and ($leftovers.Count -eq 0)) 'R2 owned apply no-op' ($o2 | Select-Object -Last 1)
+  Assert-R (($LASTEXITCODE -eq 0) -and (((Get-Content -LiteralPath $t1 -Raw) -cne $cfg)) -and ($leftovers.Count -gt 0)) 'R2 foreign marker apply reconciles fixture' ($o2 | Select-Object -Last 1)
 
   # --- R3: markerless home => normal plan, preview touches nothing.
   $h3 = New-Root $base 'plain'

@@ -28,8 +28,8 @@ function Write-Utf8NoBom($path, $text) {
 function New-PipeBundle {
   return [ordered]@{
     schema = 'agent-profile-bundle/v1'
-    bundle_id = 'agent-config:pipe01'
-    source_repository = 'kust-projetos/agent-config'
+    bundle_id = 'opencode-orchestration:pipe01'
+    source_repository = 'Kusts/opencode-orchestration'
     source_commit_sha = 'b' * 40
     target_runtime = 'opencode-v2'
     compatibility = [ordered]@{ dialect = 'v2'; minimum_capabilities = @('agents', 'permissions') }
@@ -38,7 +38,7 @@ function New-PipeBundle {
       [ordered]@{ agent_id = 'coder'; mode = 'subagent'; native_permissions = @([ordered]@{ action = 'edit'; resource = '*'; effect = 'deny' }) },
       [ordered]@{ agent_id = 'tester'; mode = 'subagent'; native_permissions = @([ordered]@{ action = 'shell'; resource = 'git status *'; effect = 'allow' }) },
       [ordered]@{ agent_id = 'reviewer'; mode = 'subagent'; native_permissions = @([ordered]@{ action = 'shell'; resource = '*'; effect = 'deny' }) })
-    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'agent-config:global'; owner = 'agent-config' })
+    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'orchestration:global'; owner = 'opencode-orchestration' })
     legacy_compatibility = [ordered]@{ v1_mutation = $false }
     format_version = 1
   }
@@ -90,7 +90,7 @@ try {
   Assert-P (($r.outcome -ceq 'EXECUTED') -and ($r.receipt.outcome -ceq 'CONFIRMED') -and ($r.receipt.enforcement -ceq 'SOFT_ADVISORY') -and ($pc.n -eq 1) -and ($ec.n -eq 1)) 'pipe pinned green executes once'
 
   # --- 4. stale pin NEVER reaches persist, gate, or executor (real composition).
-  $b2 = New-PipeBundle; $b2.bundle_id = 'agent-config:pipe02'
+  $b2 = New-PipeBundle; $b2.bundle_id = 'opencode-orchestration:pipe02'
   Write-PipeBundle $b2 $fx
   $staleLoad = Read-AgentProfileBundle -LiteralPath $fx
   $pc2 = @{ n = 0 }; $ec2 = @{ n = 0 }

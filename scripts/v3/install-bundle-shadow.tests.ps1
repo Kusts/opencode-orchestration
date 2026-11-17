@@ -40,14 +40,14 @@ function Write-Utf8($path, $text) {
 }
 function Write-ShadowBundle($path) {
   $obj = [ordered]@{
-    schema = 'agent-profile-bundle/v1'; bundle_id = 'agent-config:shadow01'
-    source_repository = 'kust-projetos/agent-config'; source_commit_sha = 'c' * 40
+    schema = 'agent-profile-bundle/v1'; bundle_id = 'opencode-orchestration:shadow01'
+    source_repository = 'Kusts/opencode-orchestration'; source_commit_sha = 'c' * 40
     target_runtime = 'opencode-v2'
     compatibility = [ordered]@{ dialect = 'v2'; minimum_capabilities = @('agents', 'permissions') }
     policy_refs = [ordered]@{ agent_profiles = 'p'; native_permissions = 'n'; risk_requirements = 'r'; capability_catalog = 'c' }
     agent_profiles = @(
       [ordered]@{ agent_id = 'coder'; mode = 'subagent'; native_permissions = @([ordered]@{ action = 'edit'; resource = '*'; effect = 'deny' }) })
-    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'agent-config:global'; owner = 'agent-config' })
+    managed_paths = @([ordered]@{ resource = 'AGENTS.md'; namespace = 'orchestration:global'; owner = 'opencode-orchestration' })
     legacy_compatibility = [ordered]@{ v1_mutation = $false }
     format_version = 1
   }

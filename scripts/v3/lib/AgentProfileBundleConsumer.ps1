@@ -140,7 +140,7 @@ function Read-AgentProfileBundle {
     Test-ConsumerUnknownKeys -Object $b -Allowed $script:ConsumerTopKeys -AddFinding $add -Where 'bundle'
     if ($b.schema -cne $script:ConsumerSchemaV1) { & $add 'INCOMPATIBLE_BUNDLE' ("schema must be $($script:ConsumerSchemaV1)") }
     if ([string]::IsNullOrWhiteSpace([string]$b.bundle_id)) { & $add 'INVALID_AGENT' 'missing: bundle_id' }
-    if ($b.source_repository -cne 'kust-projetos/agent-config') { & $add 'INCOMPATIBLE_BUNDLE' 'foreign source_repository' }
+    if ([string]::IsNullOrWhiteSpace([string]$b.source_repository)) { & $add 'INVALID_AGENT' 'missing: source_repository' }
     foreach ($f in @('payload_digest', 'target_runtime', 'compatibility', 'policy_refs', 'agent_profiles', 'managed_paths', 'legacy_compatibility', 'format_version')) {
         if ($null -eq $b.$f) { & $add 'INVALID_AGENT' ("missing: $f") }
     }
@@ -190,7 +190,6 @@ function Read-AgentProfileBundle {
         if ([string]::IsNullOrWhiteSpace($res) -or ($res -match '\.\.') -or ($res -match '^[a-zA-Z]:') -or ($res -match '^\\\\') -or ($res -match '^/')) {
             & $add 'INVALID_PATH' ("bad resource path: $res")
         }
-        if (($null -ne $m.owner) -and ($m.owner -cne 'agent-config')) { & $add 'INVALID_PATH' ("foreign owner: $($m.owner)") }
     }
     $blocking = @($findings | Where-Object { $_.Code -cne 'SECRET_SUSPECT' })
     if ($blocking.Count -eq 0) {
