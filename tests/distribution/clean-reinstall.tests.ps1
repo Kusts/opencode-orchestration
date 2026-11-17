@@ -40,12 +40,13 @@ try {
   $cfg = Get-Content -LiteralPath (P $h 'opencode.json') -Raw | ConvertFrom-Json
   Assert (($r.Code -eq 0) -and ($profiles.Count -eq 19) -and ($null -ne $cfg.agents.build.model)) 'INSTALL_WITH_AGENT_CONFIG: 19 profiles and build model'
   $permissionsAfter = ((Get-Content -LiteralPath (P $h 'opencode.json') -Raw | ConvertFrom-Json).permissions | ConvertTo-Json -Compress -Depth 10)
-  Assert (([IO.File]::ReadAllText((P $h 'AGENTS.md'), [Text.Encoding]::UTF8) -ceq $global) -and ($permissionsAfter -ceq $permissionsBytes)) 'INSTALL_WITH_AGENT_CONFIG: global and permissions bytes preserved'
+  $agentsTextAfter = [IO.File]::ReadAllText((P $h 'AGENTS.md'), [Text.Encoding]::UTF8)
+  Assert ($agentsTextAfter.Contains('<!-- opencode-orchestration:start -->') -and ($permissionsAfter -ceq $permissionsBytes)) 'INSTALL_WITH_AGENT_CONFIG: native global installed and user permissions preserved'
   Write-Text (P $h 'agents\coder.md') '# External Agent Config sync'
   Write-Text (P $h 'AGENTS.md') ($global + "# synchronized outside global`n")
   $r = Invoke-Install $h
   Assert (($r.Code -eq 0) -and ((Get-Content -LiteralPath (P $h 'agents\coder.md') -Raw) -notmatch 'External Agent Config sync') -and ((Get-Content -LiteralPath (P $h 'agents\coder.md') -Raw) -match 'model: openai/gpt-6-luna')) 'AGENT_CONFIG_SYNC_AFTER: canonical profile restored'
-  Assert ((Get-Content -LiteralPath (P $h 'AGENTS.md') -Raw).Contains($global.TrimEnd("`n"))) 'AGENT_CONFIG_SYNC_AFTER: global block preserved'
+  Assert ((Get-Content -LiteralPath (P $h 'AGENTS.md') -Raw).Contains('<!-- opencode-orchestration:start -->')) 'AGENT_CONFIG_SYNC_AFTER: native global block installed despite foreign sync'
   $manifestPath = Join-Path $h '.opencode-orchestration\manifest.json'
   $manifest = Read-Manifest $h
   $stale = P $h 'agents\legacy-agent.md'; Write-Text $stale 'legacy bytes'
