@@ -60,10 +60,10 @@
       "runtime": { "v2": true, "note": "skills sao tecnica/intencao; carregamento pela via nativa do runtime" },
       "managed_by": "control-plane",
       "declared_by": "package",
-      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "5 SKILL.md presentes em skills-core e referenciadas pelo instalador" },
+      "status": { "desired": "ACTIVE", "observed": "ACTIVE", "observed_at": "2026-10-06", "observed_note": "8 SKILL.md presentes em skills-core e referenciadas pelo instalador" },
       "risk": { "level": "low", "reason": "tecnica reutilizavel; sem autoridade sobre policy/permissoes" },
       "activation": { "mode": "on-demand", "note": "carregadas pelo gatilho da tarefa, nunca por rito" },
-      "healthcheck": { "probe": "repo-dir", "target": "skills-core", "expect_files": ["hybrid-development/SKILL.md", "dispatching-parallel-agents/SKILL.md", "subagent-driven-development/SKILL.md", "verification-before-completion/SKILL.md", "using-superpowers/SKILL.md"], "command": "5 SKILL.md presentes em skills-core", "timeout_seconds": 10 }
+      "healthcheck": { "probe": "repo-dir", "target": "skills-core", "expect_files": ["addy-incremental-delivery/SKILL.md", "bmad-structured-delivery/SKILL.md", "dispatching-parallel-agents/SKILL.md", "hybrid-development/SKILL.md", "pocock-technical-decisions/SKILL.md", "subagent-driven-development/SKILL.md", "using-superpowers/SKILL.md", "verification-before-completion/SKILL.md"], "command": "8 SKILL.md presentes em skills-core", "timeout_seconds": 10 }
     },
     {
       "id": "orchestration-enforcement",

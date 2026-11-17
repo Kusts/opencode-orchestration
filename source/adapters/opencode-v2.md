@@ -5,7 +5,7 @@
 - Alvo global: `%USERPROFILE%\.config\opencode\AGENTS.md` (mesmo diretorio
   do V1; o V1 e o V2 honram o config root por processo via XDG_CONFIG_HOME).
 - Caminhos de skills e scripts sao IDENTICOS aos do V1
-  (`%USERPROFILE%\.config\opencode\skills`, mesmos 5 skills-core; o plugin
+  (`%USERPROFILE%\.config\opencode\skills`, mesmas 8 skills-core; o plugin
   bundle e dual-runtime). Nada muda no filesystem entre geracoes, so o
   dialeto do config.
 - Preserve o comportamento autônomo nativo do OpenCode e as extensões locais.

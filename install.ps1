@@ -128,10 +128,8 @@ function Invoke-InstallValidation {
   }
   try { $installedCfg = (Read-Utf8 (Join-Path $ocDir $configFileName)) | ConvertFrom-Json -ErrorAction Stop; if ($IsV2) { if ($installedCfg.experimental.subagent_depth -ne 1) { $conflicts += 'config: experimental.subagent_depth diferente de 1' } } elseif ($installedCfg.subagent_depth -ne 1) { $conflicts += 'config: subagent_depth diferente de 1' } } catch { $conflicts += ('config: JSON invalido: ' + $_.Exception.Message) }
   $instructions = Read-Utf8 (Join-Path $ocDir 'AGENTS.md')
-  $globalStart = [regex]::Matches($instructions, [regex]::Escape('<!-- agent-config:global:start -->')).Count; $globalEnd = [regex]::Matches($instructions, [regex]::Escape('<!-- agent-config:global:end -->')).Count
   $orchStart = [regex]::Matches($instructions, [regex]::Escape('<!-- opencode-orchestration:start -->')).Count; $orchEnd = [regex]::Matches($instructions, [regex]::Escape('<!-- opencode-orchestration:end -->')).Count
-  if ($ConfigOwnsGlobal -and (-not $ConfigContentInLegacyMarker)) { if (($globalStart -ne 1) -or ($globalEnd -ne 1) -or ($orchStart -ne 0) -or ($orchEnd -ne 0)) { $conflicts += 'instructions: marcadores ownership invalidos' } }
-  elseif (-not $ConfigOwnsGlobal) { if (($orchStart -ne 1) -or ($orchEnd -ne 1)) { $conflicts += 'instructions: marcador orchestration invalido' } }
+  if (($orchStart -ne 1) -or ($orchEnd -ne 1)) { $conflicts += 'instructions: marcador orchestration invalido' }
   foreach ($c in $conflicts) { $component = ([string]$c -split ':',2)[0]; if ($states.Contains($component)) { $states[$component] = 'CONFLICT' } }
   return [ordered]@{ States=$states; Conflicts=@($conflicts) }
 }
@@ -1501,47 +1499,16 @@ else {
   $desired = $tmplRes.Desired
 }
 
-# O2.1 owner detection happens BEFORE any bundle override: Active/Canary
-# decisions and the agents-md merge all depend on it.
 $agentsTargetPath = Join-Path $ocDir 'AGENTS.md'
 $existingAgentsMd = $null
 if (Test-Path -LiteralPath $agentsTargetPath -PathType Leaf) { $existingAgentsMd = Read-Utf8 $agentsTargetPath }
-# O2.1: Config owns the global text when its namespaced marker is present.
-# The installer then writes NO global text, NO agents/*.md editable forks, or
-# worker agents.* profiles (Config canonical). Standalone mode keeps snapshots.
-$ConfigOwnsGlobal = (($null -ne $existingAgentsMd) -and ($existingAgentsMd -match '<!-- agent-config:global:start -->') -and ($existingAgentsMd -match '<!-- agent-config:global:end -->'))
-$ConfigContentInLegacyMarker = $false
-$LegacyConfigContent = $null
-if (($null -ne $existingAgentsMd) -and (-not $ConfigOwnsGlobal)) {
-  $legacyMatch = [regex]::Match($existingAgentsMd, '(?s)<!-- opencode-orchestration:start -->(.*?)<!-- opencode-orchestration:end -->')
-  if ($legacyMatch.Success) {
-    $legacyBody = $legacyMatch.Groups[1].Value
-    if (($legacyBody -match 'source/;\s*regenerate with .*render-agent-config\.ps1') -or (($legacyBody -match '<!-- agent-config:global:start -->') -and ($legacyBody -match '<!-- agent-config:global:end -->'))) {
-      $ConfigOwnsGlobal = $true
-      $ConfigContentInLegacyMarker = $true
-      $LegacyConfigContent = $legacyBody
-      Write-Host '[OWNER] AGENTS.md: conteúdo do Agent Config sob marcador legado preservado; rode o reconciliador do Agent Config para migrar os marcadores.' -ForegroundColor Yellow
-    }
-  }
-}
-if ($ConfigOwnsGlobal) {
-  Write-Host '[install] Config owner detectado: texto global e perfis worker agents.* NAO serao escritos.' -ForegroundColor Cyan
-}
-if ($ConfigOwnsGlobal -and (-not $IsV2)) {
-  Write-Host '[install] Config owner (agent-config:global) exige o caminho V2: instalacao V1 recusada (fail-closed; V1 frozen). Use -Runtime V2.' -ForegroundColor Red
-  exit 3
-}
 
-# O7.2 Active: permissions sourced from the bundle (standalone V2 only).
-# Refused when Config owns the global text (its reconciler is canonical),
-# when runtime is not V2, or on any divergence (unknown agent / mode
+
+# O7.2 Active: permissions sourced from the bundle (V2 only).
+# Refused when runtime is not V2, or on any divergence (unknown agent / mode
 # mismatch). Bodies still come from repo snapshots (bundle is metadata).
 $bundleActive = $null
 if ($BundleMode -ieq 'Active') {
-  if ($ConfigOwnsGlobal) {
-    Write-Host '[bundle-active] recusado: Config owns agents.*.permissions (fail-closed).' -ForegroundColor Red
-    exit 3
-  }
   if (-not $IsV2) {
     Write-Host '[bundle-active] exige -Runtime V2 (fail-closed).' -ForegroundColor Red
     exit 3
@@ -1590,12 +1557,6 @@ $agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.
 $agentsMdRes = Merge-ManagedAgentsMdBlock $existingAgentsMd $agentsContent $header
 $retiredBlock = $false
 $retiredOrchestrationBanner = $false
-if ($ConfigOwnsGlobal -and (-not $ConfigContentInLegacyMarker) -and ($null -ne $existingAgentsMd)) {
-  $retireResult = Remove-LegacyOrchestrationBlock $existingAgentsMd
-  $retiredBlock = [bool]$retireResult.RemovedBlock
-  $retiredOrchestrationBanner = [bool]$retireResult.RemovedBanner
-  if ($retireResult.Removed) { $agentsMdRes = @{ Text = $retireResult.Text; Action = 'RETIRE' } }
-}
 
 $repoEsc = $RepoRoot.Replace('\', '\\')
 $agentFiles = @()
@@ -1722,12 +1683,7 @@ $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
 # Join-Path a partir do RelativePath (nunca por Substring de FullName).
 $ops = New-Object System.Collections.ArrayList
 $sharedSkillNames = New-Object System.Collections.ArrayList
-if ($ConfigOwnsGlobal -and (-not ($retiredBlock -or $retiredOrchestrationBanner))) {
-  Write-Host '[install] SKIP agents-md: texto global pertence ao agent-config.' -ForegroundColor Cyan
-}
-else {
   [void]$ops.Add(@{ Component = 'agents-md'; RelativePath = 'AGENTS.md'; StageText = $agentsMdRes.Text; Label = 'AGENTS.md' })
-}
 foreach ($a in $agentFiles) {
   [void]$ops.Add(@{ Component = 'agents'; RelativePath = ('agents\' + $a.Name); StageText = $a.Text; Label = ('agents/' + $a.Name) })
 }
@@ -1876,14 +1832,7 @@ function File-Plan([string]$Dst, [string]$DesiredText, [string]$Label) {
   if ($a -eq $b) { Add-Plan 'SKIP' ($Label + ' (inalterado)') }
   else { Add-Plan 'UPDATE' $Label }
 }
-if ($ConfigOwnsGlobal) {
-  if ($ConfigContentInLegacyMarker) { Add-Plan 'SKIP' 'AGENTS.md (conteúdo do Agent Config sob marcador legado; preservado)' }
-  elseif ($retiredBlock -or $retiredOrchestrationBanner) { Add-Plan 'RETIRE' 'AGENTS.md (banner/bloco legado da Orquestração retirado; texto global é do agent-config)' }
-  else { Add-Plan 'SKIP' 'AGENTS.md (dono agent-config:global; texto global nao aplicado)' }
-}
-else {
-  File-Plan $agentsTargetPath $agentsMdRes.Text 'AGENTS.md (bloco markered)'
-}
+File-Plan $agentsTargetPath $agentsMdRes.Text 'AGENTS.md (bloco markered)'
 foreach ($a in $agentFiles) { File-Plan (Join-Path $ocDir ('agents\' + $a.Name)) $a.Text ('agents/' + $a.Name) }
 foreach ($stale in $staleSkillFiles) {
   if ($stale.Preserve) { Add-Plan 'PRESERVE' ($stale.Label + ' (' + $stale.PreserveReason + ')') }
@@ -2065,6 +2014,7 @@ if ($isWhatIf) {
   foreach ($l in $plan) { Write-Host $l -ForegroundColor DarkGray }
   $whatIfSummary = Get-InstallResultSummary $plan
   Write-Host ('RESULT: INSTALLED={0} UNCHANGED={1} PRESERVED={2} CONFLICT=0 FAILED=0' -f $whatIfSummary.installed, $whatIfSummary.unchanged, $whatIfSummary.preserved)
+  Write-Host '[MANIFEST] config_ownership=orchestration-snapshot'
   Write-Host ('Plano: ' + $plan.Count + ' recurso(s). Nenhuma escrita realizada.') -ForegroundColor Cyan
   exit 0
 }
@@ -2137,15 +2087,10 @@ try {
       $stAgents = Read-Utf8 $stageAgentsPath
       $cStart = ([regex]::Matches($stAgents, [regex]::Escape($MarkStart))).Count
       $cEnd = ([regex]::Matches($stAgents, [regex]::Escape($MarkEnd))).Count
-      if ($ConfigOwnsGlobal) {
-        $cfgS = ([regex]::Matches($stAgents, [regex]::Escape('<!-- agent-config:global:start -->'))).Count
-        $cfgE = ([regex]::Matches($stAgents, [regex]::Escape('<!-- agent-config:global:end -->'))).Count
-        if (($cStart -ne 0) -or ($cEnd -ne 0) -or ($cfgS -ne 1) -or ($cfgE -ne 1)) { $stageErrs += 'stage AGENTS.md markers Config-owned invalidos.' }
-      }
-      elseif (($cStart -ne 1) -or ($cEnd -ne 1)) { $stageErrs += ('stage AGENTS.md markers invalidos (start=' + $cStart + ' end=' + $cEnd + ').') }
+      if (($cStart -ne 1) -or ($cEnd -ne 1)) { $stageErrs += ('stage AGENTS.md markers invalidos (start=' + $cStart + ' end=' + $cEnd + ').') }
     }
-    elseif (-not $ConfigOwnsGlobal) {
-      $stageErrs += 'stage AGENTS.md ausente sem Config owner (fail-closed).'
+    else {
+      $stageErrs += 'stage AGENTS.md ausente (fail-closed).'
     }
     if ((Count-TokenMarkers $stageAllText) -ne 0) { $stageErrs += 'stage contem tokens {{...}} nao resolvidos.' }
     if ($stageErrs.Count -gt 0) {
@@ -2332,7 +2277,6 @@ try {
       $managedFiles = New-Object System.Collections.ArrayList
       foreach ($op in $ops) {
         if ($op.ContainsKey('Remove') -and $op.Remove) { continue }
-        if ($ConfigOwnsGlobal -and ($op.Component -eq 'agents-md')) { continue }
         [void]$managedFiles.Add(@{ relative = $op.RelativePath; sha256 = (Get-FileHashSafe $op.DestinationPath) })
       }
     $rev = 'unknown'
@@ -2463,16 +2407,6 @@ try {
       Write-Host ('[bundle-canary] ' + $bLoadC.Code + ' match=' + $matchC.Count + ' divergent=' + $divC.Count) -ForegroundColor Cyan
     }
     $instructionsContract = 'UNKNOWN'
-    if ($ConfigOwnsGlobal) {
-      $cfgBlockText = $null
-      $cfgBlockMatch = [regex]::Match([string]$existingAgentsMd, '(?s)<!-- agent-config:global:start -->(.*?)<!-- agent-config:global:end -->')
-      if ($cfgBlockMatch.Success) { $cfgBlockText = $cfgBlockMatch.Groups[1].Value }
-      elseif ($ConfigContentInLegacyMarker) { $cfgBlockText = $LegacyConfigContent }
-      if ($null -ne $cfgBlockText) {
-        if ($cfgBlockText -match 'DIRECT_VERIFIED_MICRO_EDIT_LOW_RISK') { $instructionsContract = 'STALE' }
-        elseif (($cfgBlockText -match 'SINGLE_WORKER') -and ($cfgBlockText -match '(?is)write.{0,100}worker|worker.{0,100}write|escrita.{0,100}worker')) { $instructionsContract = 'CURRENT' }
-      }
-    }
     $retiredBlockRecords = @()
     if ($retiredBlock) { $retiredBlockRecords += 'opencode-orchestration' }
     if ($retiredOrchestrationBanner) { $retiredBlockRecords += 'opencode-orchestration-banner' }
@@ -2488,18 +2422,18 @@ try {
       bundle_shadow = $bundleShadow
       bundle_canary = $bundleCanary
       bundle_active = $bundleActive
-      config_ownership = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
-      skipped_namespaces = $(if ($ConfigOwnsGlobal) { @('AGENTS.md:global', 'opencode.json:permissions') } else { @() })
-      snapshot_provenance = $(if ($ConfigOwnsGlobal) { 'orchestration-canonical (profiles installed)' } else { 'SNAPSHOT_COMPAT (generated copies; not editable sources)' })
+      config_ownership = 'orchestration-snapshot'
+      skipped_namespaces = @()
+      snapshot_provenance = 'SNAPSHOT_COMPAT (generated copies; not editable sources)'
       ownership = [ordered]@{
-        global_text = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
-        worker_profiles = $(if ($ConfigOwnsGlobal) { 'orchestration' } else { 'orchestration-snapshot' })
+        global_text = 'orchestration-snapshot'
+        worker_profiles = 'orchestration-snapshot'
         build_profile_model = 'orchestration'
-        build_permissions = $(if ($ConfigOwnsGlobal) { 'orchestration' } else { 'orchestration-snapshot' })
+        build_permissions = 'orchestration-snapshot'
         skills = 'orchestration'
         shared_skills = @($sharedSkillNames)
         plugin = 'orchestration'
-        top_level_permissions = $(if ($ConfigOwnsGlobal) { 'agent-config' } else { 'orchestration-snapshot' })
+        top_level_permissions = 'orchestration-snapshot'
       }
       retired_blocks = @($retiredBlockRecords)
       removed_stale = @($staleSkillFiles | Where-Object { -not $_.Preserve } | ForEach-Object { @{ relative = $_.RelativePath; sha256 = $_.ExpectedHash } })

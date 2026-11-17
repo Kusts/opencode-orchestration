@@ -40,12 +40,13 @@ try {
   $cfg = Get-Content -LiteralPath (P $h 'opencode.json') -Raw | ConvertFrom-Json
   Assert (($r.Code -eq 0) -and ($profiles.Count -eq 19) -and ($null -ne $cfg.agents.build.model)) 'INSTALL_WITH_AGENT_CONFIG: 19 profiles and build model'
   $permissionsAfter = ((Get-Content -LiteralPath (P $h 'opencode.json') -Raw | ConvertFrom-Json).permissions | ConvertTo-Json -Compress -Depth 10)
-  Assert (([IO.File]::ReadAllText((P $h 'AGENTS.md'), [Text.Encoding]::UTF8) -ceq $global) -and ($permissionsAfter -ceq $permissionsBytes)) 'INSTALL_WITH_AGENT_CONFIG: global and permissions bytes preserved'
+  $agentsTextAfter = [IO.File]::ReadAllText((P $h 'AGENTS.md'), [Text.Encoding]::UTF8)
+  Assert ($agentsTextAfter.Contains('<!-- opencode-orchestration:start -->') -and ($permissionsAfter -ceq $permissionsBytes)) 'INSTALL_WITH_AGENT_CONFIG: native global installed and user permissions preserved'
   Write-Text (P $h 'agents\coder.md') '# External Agent Config sync'
   Write-Text (P $h 'AGENTS.md') ($global + "# synchronized outside global`n")
   $r = Invoke-Install $h
   Assert (($r.Code -eq 0) -and ((Get-Content -LiteralPath (P $h 'agents\coder.md') -Raw) -notmatch 'External Agent Config sync') -and ((Get-Content -LiteralPath (P $h 'agents\coder.md') -Raw) -match 'model: openai/gpt-6-luna')) 'AGENT_CONFIG_SYNC_AFTER: canonical profile restored'
-  Assert ((Get-Content -LiteralPath (P $h 'AGENTS.md') -Raw).Contains($global.TrimEnd("`n"))) 'AGENT_CONFIG_SYNC_AFTER: global block preserved'
+  Assert ((Get-Content -LiteralPath (P $h 'AGENTS.md') -Raw).Contains('<!-- opencode-orchestration:start -->')) 'AGENT_CONFIG_SYNC_AFTER: native global block installed despite foreign sync'
   $manifestPath = Join-Path $h '.opencode-orchestration\manifest.json'
   $manifest = Read-Manifest $h
   $stale = P $h 'agents\legacy-agent.md'; Write-Text $stale 'legacy bytes'
@@ -82,6 +83,33 @@ try {
   Assert (($r.Code -eq 0) -and (Test-Path (P $h 'mcp\custom.json')) -and (Test-Path (P $h 'plugins\third-party.js')) -and (Test-Path (P $h 'skills\third-party\SKILL.md'))) 'PRESERVES_EXTERNAL: custom namespaces survive clean'
 }
 finally { Remove-Home $h }
+
+$h = New-Home 'shared-skill-junction'
+$junctionTarget = New-Home 'junction-target'
+try {
+  $r = Invoke-Install $h
+  $skillName = 'hybrid-development'
+  $skillPath = P $h ('skills\' + $skillName)
+  $junction = $false
+  try {
+    Remove-Item -LiteralPath $skillPath -Recurse -Force
+    Write-Text (Join-Path $junctionTarget 'third-party.txt') 'third-party content'
+    Write-Text (Join-Path $junctionTarget 'SKILL.md') '# Third-party replacement'
+    New-Item -ItemType Junction -Path $skillPath -Target $junctionTarget -ErrorAction Stop | Out-Null
+    $junction = $true
+  } catch {
+    Write-Host ("SKIP SHARED_SKILL_JUNCTION: junction unavailable: " + $_.Exception.Message)
+  }
+  if ($junction) {
+    $r = Invoke-Install $h
+    $manifest = Read-Manifest $h
+    $isJunction = (((Get-Item -LiteralPath $skillPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    $targetIntact = ((Get-Content -LiteralPath (Join-Path $junctionTarget 'SKILL.md') -Raw) -ceq '# Third-party replacement') -and (Test-Path -LiteralPath (Join-Path $junctionTarget 'third-party.txt'))
+    $recorded = @($manifest.ownership.shared_skills) -contains $skillName
+    Assert (($r.Code -eq 0) -and $isJunction -and $targetIntact -and $recorded) ("SHARED_SKILL_JUNCTION: code={0}, junction={1}, target={2}, recorded={3}" -f $r.Code,$isJunction,$targetIntact,$recorded)
+  }
+}
+finally { Remove-Home $h; Remove-Home $junctionTarget }
 
 $h = New-Home 'clean-rollback'
 try {
