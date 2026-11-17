@@ -84,6 +84,33 @@ try {
 }
 finally { Remove-Home $h }
 
+$h = New-Home 'shared-skill-junction'
+$junctionTarget = New-Home 'junction-target'
+try {
+  $r = Invoke-Install $h
+  $skillName = 'hybrid-development'
+  $skillPath = P $h ('skills\' + $skillName)
+  $junction = $false
+  try {
+    Remove-Item -LiteralPath $skillPath -Recurse -Force
+    Write-Text (Join-Path $junctionTarget 'third-party.txt') 'third-party content'
+    Write-Text (Join-Path $junctionTarget 'SKILL.md') '# Third-party replacement'
+    New-Item -ItemType Junction -Path $skillPath -Target $junctionTarget -ErrorAction Stop | Out-Null
+    $junction = $true
+  } catch {
+    Write-Host ("SKIP SHARED_SKILL_JUNCTION: junction unavailable: " + $_.Exception.Message)
+  }
+  if ($junction) {
+    $r = Invoke-Install $h
+    $manifest = Read-Manifest $h
+    $isJunction = (((Get-Item -LiteralPath $skillPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    $targetIntact = ((Get-Content -LiteralPath (Join-Path $junctionTarget 'SKILL.md') -Raw) -ceq '# Third-party replacement') -and (Test-Path -LiteralPath (Join-Path $junctionTarget 'third-party.txt'))
+    $recorded = @($manifest.ownership.shared_skills) -contains $skillName
+    Assert (($r.Code -eq 0) -and $isJunction -and $targetIntact -and $recorded) ("SHARED_SKILL_JUNCTION: code={0}, junction={1}, target={2}, recorded={3}" -f $r.Code,$isJunction,$targetIntact,$recorded)
+  }
+}
+finally { Remove-Home $h; Remove-Home $junctionTarget }
+
 $h = New-Home 'clean-rollback'
 try {
   $r = Invoke-Install $h
