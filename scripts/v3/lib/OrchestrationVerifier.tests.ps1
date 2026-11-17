@@ -144,6 +144,35 @@ try {
     Assert-Verifier (-not (Test-Path -LiteralPath $scopeMarker -PathType Leaf)) 'no command ran after out-of-scope block (marker absent)'
     Assert-Verifier ((@($o.profiles).Count -eq 0)) 'no profiles executed on scope block'
 
+    # Prove the valid profile is executable when the write is in scope.
+    $scopePositiveRepo = New-VerifierGitRepo
+    [void]$roots.Add($scopePositiveRepo)
+    Write-VerifierFixture -Path (Join-Path $scopePositiveRepo 'allowed\ok.txt') -Text "ok`n"
+    & git -C $scopePositiveRepo add -A *>$null
+    & git -C $scopePositiveRepo commit -m baseline -q *>$null
+    if ($LASTEXITCODE -ne 0) { throw ('git baseline commit failed in ' + $scopePositiveRepo) }
+    $scopePositive = Invoke-OrchestrationVerifier -TaskId 'scope-positive-001' -RepoRoot $scopePositiveRepo -BaseRevision 'HEAD' -WriteScopes @('allowed') -ProfileNames @('probe') -PolicyPath $scopePol
+    Assert-Verifier (Test-Path -LiteralPath $scopeMarker -PathType Leaf) 'in-scope probe profile creates marker'
+    Remove-Item -LiteralPath $scopeMarker -Force -ErrorAction SilentlyContinue
+
+    # 5b. stale task base still includes later out-of-scope commits
+    $staleRepo = New-VerifierGitRepo
+    [void]$roots.Add($staleRepo)
+    Write-VerifierFixture -Path (Join-Path $staleRepo 'src\a.txt') -Text "baseline`n"
+    Write-VerifierFixture -Path (Join-Path $staleRepo 'docs\out.txt') -Text "baseline`n"
+    & git -C $staleRepo add -A *>$null
+    & git -C $staleRepo commit -m baseline -q *>$null
+    if ($LASTEXITCODE -ne 0) { throw ('git baseline commit failed in ' + $staleRepo) }
+    $staleBase = ((& git -C $staleRepo rev-parse HEAD 2>$null) | Out-String).Trim()
+    Write-VerifierFixture -Path (Join-Path $staleRepo 'docs\out.txt') -Text "later out-of-scope change`n"
+    & git -C $staleRepo add -- docs/out.txt *>$null
+    & git -C $staleRepo commit -m later-out-of-scope -q *>$null
+    if ($LASTEXITCODE -ne 0) { throw ('git out-of-scope commit failed in ' + $staleRepo) }
+    $stale = Invoke-OrchestrationVerifier -TaskId 'scope-stale-001' -RepoRoot $staleRepo -BaseRevision $staleBase -WriteScopes @('src') -ProfileNames @('probe') -PolicyPath $scopePol
+    Assert-Verifier (([string]$stale.status -ceq 'verification_failed') -and ([string]$stale.reason -ceq 'out_of_scope_write')) 'stale base blocks later out-of-scope commit'
+    Assert-Verifier (((@($stale.scope.out_of_scope) -join '|') -match 'docs/out.txt') -and (@($stale.profiles).Count -eq 0)) 'stale-base scope identifies docs/out.txt and runs no profiles'
+    Assert-Verifier (-not (Test-Path -LiteralPath $scopeMarker -PathType Leaf)) 'probe profile did NOT run after stale-base scope block'
+
     # 6. in-scope write passes scope check
     Write-VerifierFixture -Path (Join-Path $scopeRepo 'allowed\ok.txt') -Text "ok`n"
     $s = Test-OrchestrationWriteScope -RepoRoot $scopeRepo -BaseRevision 'HEAD' -WriteScopes @('allowed')
@@ -279,6 +308,6 @@ finally {
     }
 }
 
-Write-Host ("OrchestrationVerifier: {0} / {1} tests passed" -f $script:passed, ($script:passed + $script:failed))
+Write-Host ("OK OrchestrationVerifier: {0} / {1} tests passed ({2} asserts)" -f $script:passed, ($script:passed + $script:failed), ($script:passed + $script:failed))
 if ($script:failed -gt 0) { exit 1 }
 exit 0
