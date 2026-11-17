@@ -147,6 +147,8 @@ claim além do testado.
 - Em OpenCode 2.3.0, observou-se que as regras de topo precedem as do agente
   na lista efetiva; assim, o catch-all do perfil vence asks de topo. Por isso
   `Format-Volume` e `diskpart` foram explicitados como deny nos writers.
+- Em 2026-11-17, a resolução efetiva foi inspecionada no binário 2.3.0, mas o enforcement por execução permanece `BLOCKED_RUNTIME_PROOF`.
+  Consulte o [relatório de confiabilidade operacional](../evidence/confiabilidade-operacional-2026-11-17/RELATORIO.md) e a [issue #141](https://github.com/akitaonrails/opencode-orchestration/issues/141).
 - `opencode debug agents` sem `--standalone` anexa ao serviço em background e
   mostra a configuração viva do serviço, não a configuração instalada isoladamente.
 - `PRODUCTION_AUTHORIZED` ausente equivale a `false`, e `true` **não autoriza por si só**
