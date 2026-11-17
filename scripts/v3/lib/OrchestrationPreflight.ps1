@@ -389,6 +389,26 @@ function Get-OrchestrationPreflight {
         }
 
         $excl = Get-OrchestrationHardExclusions -Objective $obj -TaskType $tt -Domain $dom -SecondaryDomains $sec -Risk $rk -ReadWrite $rw
+        # Security/authority vocabulary in a read-only analysis is a subject,
+        # not an action. Keep every mutation/credential operation excluded;
+        # only downgrade these subject-only signals for explicit analysis.
+        if ([bool]$excl.Excluded -and ($rw -ceq 'read') -and ($tt -in @('analysis', 'review', 'audit', 'lookup', 'read'))) {
+            $readReviewTokens = @('authority_change', 'permission_change', 'security_sensitive', 'credentials')
+            $hasOnlyReadReviewTokens = (@($excl.Tokens).Count -gt 0)
+            foreach ($token in @($excl.Tokens)) {
+                if ($token -notin $readReviewTokens) { $hasOnlyReadReviewTokens = $false; break }
+            }
+            $objNormalized = Convert-OrchestrationNormalizedText -Text $obj
+            $authorityMissing = Test-OrchestrationKeyword -Blob $objNormalized -Words @('without authority', 'missing authority', 'no authority', 'unauthorized', 'unauthorised', 'sem autoridade', 'sem autorizacao', 'autoridade ausente')
+            # Best-effort only: Test-OrchestrationKeyword matches prefixes.
+            # Execution authority is enforced by later delegation (sensitiveHit/
+            # substantiveHit prevent DIRECT_VERIFIED) and the V2 mandate, not
+            # by this denylist.
+            $mutationVerb = Test-OrchestrationKeyword -Blob $objNormalized -Words @('change', 'rotate', 'modify', 'update', 'grant', 'revoke', 'set', 'activate', 'ativar', 'enable', 'disable', 'delete', 'create', 'add', 'alterar', 'rotacionar', 'conceder', 'revogar', 'renew', 'replace', 'overwrite', 'rename', 'remove', 'reset', 'edit', 'apply', 'upload', 'publish', 'write', 'store', 'inject', 'escalate', 'remover', 'substituir', 'redefinir', 'editar', 'aplicar', 'publicar')
+            if ($hasOnlyReadReviewTokens -and -not $authorityMissing -and -not $mutationVerb) {
+                $excl = [PSCustomObject]@{ Excluded = $false; Tokens = [string[]]@() }
+            }
+        }
         if ([bool]$excl.Excluded) {
             $first = ''
             if (@($excl.Tokens).Count -gt 0) { $first = [string](@($excl.Tokens)[0]) }

@@ -388,6 +388,8 @@ irrelevantes podem ser omitidos; tarefas mínimas dispensam o contrato.
 
 Para delegações com escrita ou shell sensível, inclua `ALLOWED_ENVIRONMENT` (ambiente nomeado e limites), `PRODUCTION_AUTHORIZED` (`true` apenas com autorização explícita para aquele ambiente; ausência equivale a `false`) e `CREDENTIAL_SCOPE` (identificadores/perfis permitidos, nunca valores de segredos). Preencha `PROHIBITED_OPERATIONS` com proibições concretas da tarefa, inclusive destruição de dados, publicação e mutação fora do ambiente autorizado. O worker não amplia esses campos por inferência de seu papel, de uma aprovação `ask` ou de credenciais disponíveis; diante de operação não coberta, interrompe e devolve ao Planner. O Planner confirma separadamente ações destrutivas irreversíveis e criação, revogação ou rotação de credenciais; `PRODUCTION_AUTHORIZED` não autoriza tais ações por si só.
 
+Quando a tarefa puder produzir efeito externo, inclua `EXTERNAL_AUTHORITY_EVIDENCE` no contrato: antes do dispatch, o Planner registra a autoridade explícita e os insumos exigidos pela política (por exemplo, SHA/intenção vinculada e digest da policy, checks requeridos e evidências verificáveis com proveniência; identidade de revisor independente e confirmação humana quando exigidas). Se faltar qualquer insumo, não despache a execução do efeito: obtenha a autoridade/entrada necessária ou bloqueie e escale. Esses dados são contexto/evidência para a avaliação; não constituem aprovação nem substituem os gates do Kernel e da fronteira externa, que permanecem obrigatórios antes da ação.
+
 Campo opcional `CAPABILITY_CONTEXT` (somente quando
 `skill_routing.enabled=true`; com a flag desligada o campo nunca é emitido):
 bloco canônico gerado pela Skill execution bridge
