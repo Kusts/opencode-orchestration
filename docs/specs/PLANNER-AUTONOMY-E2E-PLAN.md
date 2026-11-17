@@ -324,7 +324,10 @@ aceito nesta fatia.
 | `pae-add-c` | revision 1; `DISCOVERING`; consolidada em `pae-add-final` | Não concluída |
 | `pae-add-e` | revision 1; `DISCOVERING`; consolidada em `pae-add-final` | Não concluída |
 | `pae-m5` | revision 1; `DISCOVERING` | Não concluída |
-| `pae-m6` | revision 1; `DISCOVERING` | Não concluída |
+| `pae-m6` | revision 1; `DISCOVERING`; task original do plano — as tasks reais de certificação são `pae-m6-a/b/c` | Não concluída |
+| `pae-m6-a` | revision 2; `candidate_pass`; validador + teste 6/6 (coder) | Não concluída (worker entregue; verificação registrada no Goal) |
+| `pae-m6-b` | revision 3; `candidate_pass`; falha controlada 5/6, diagnóstico independente e reparo de uma linha, resultado 6/6 | Não concluída (worker entregue; verificação registrada no Goal) |
+| `pae-m6-c` | revision 2; `candidate_pass`; tester 6/6 + reviewer independente; evidência `evidence/planner-autonomy-e2e/m6/certificacao-m6.md` | Não concluída (worker entregue; verificação registrada no Goal) |
 
 ### Limitação do Kernel
 
@@ -339,15 +342,40 @@ canônicas (`pae-m2c`, `pae-m3b`, `pae-m4b`, `pae-add-final`), recriadas com
 todas geraram `verified_pass` com `verification_source=kernel-executed` via
 `verify-run`.
 
+O Goal Kernel `pae-m6-cert-goal` atingiu `COMPLETED` (revision 9, 5/5
+critérios satisfeitos), com evidência persistida e três tasks registradas
+(`pae-m6-a/b/c`). A M6 foi executada como missão isolada, com falha controlada
+e reparo autônomo, sem perguntas técnicas ao usuário. Isso certifica a missão
+M6 no Goal; não marca a task original `pae-m6` como DONE.
+
+A retomada automática do Planner continua `BLOCKED` no runtime atual; essa
+limitação não foi confundida com a autonomia decisória demonstrada.
+
 `pae-m2b` e `pae-m4a` permanecem em REVIEWING como tentativas que falharam por
 `out_of_scope_write`; `pae-m3a` e `pae-correcao-jev` foram consolidadas em
 `pae-m3b`; `pae-add-a`, `pae-add-b`, `pae-add-c` e `pae-add-e` foram
-consolidadas em `pae-add-final`. As mudanças desta sessão ainda não estão
-commitadas; o CI verde cobre apenas o HEAD base `f234026`.
+consolidadas em `pae-add-final`. As mudanças desta sessão foram commitadas em
+`d554328` e integradas em `master` via PR #268 (merge `ef61761`).
 
 Validação final: package consistency 17/17; orchestration-preflight 298/298;
 v2-delegation-preflight 15/0; distribution runner 24 PASS / 0 FAIL / 1 SKIP /
 0 INTERNAL_ERROR / TOTAL 25.
 
-Estado GitHub em 2026-11-17: #237 CLOSED, #48 OPEN, PR #238 MERGED. CI verde em
-master (run 43999809105) e na branch integrada (run 44072082219).
+Estado GitHub em 2026-11-17: #237 CLOSED, #48 OPEN, PR #238 MERGED; PR #268
+MERGED (commit `d554328`, merge commit `ef61761`, branch
+`feat/planner-autonomy-e2e-20261117`).
+
+CI do PR #268 (run 44084526880): 6/6 checks verde (ps51 54m44s, ps7 1h11m12s,
+v2 lane 1h11m1s). A interpretacao anterior de "paralisacao por infraestrutura"
+foi corrigida pelo orientador ChatGPT: eram suites V3 longas, nao travamento.
+CI do HEAD integrado (run 44102195912): 5 jobs verdes e `ps7` com falha
+transitoria em `OrchestrationRuntimeWatchdogEnforcement.tests.ps1` (asserções
+`NO_PROGRESS`: `interrupted=False; child_alive=True` no CI, mas
+`interrupted=True; child_alive=False` em reprodução local). O mesmo teste
+produziu fail 2 (CI), fail 4 (local) e pass 0 (local) em execuções identicas:
+flake temporal de watchdog, sem relacao com as mudancas do PR (que nao tocaram
+watchdog/flags/testes). Foi feito `gh run rerun 44102195912 --failed` somente
+no job ps7, sem alterar testes nem timeouts. Evidencia em
+`evidence/planner-autonomy-e2e/ci-integracao.md` (artefato local, ignorado
+pelo Git). Desfecho do rerun: em acompanhamento; se falhar novamente, registrar
+`BLOCKED_CI` com evidencia.
