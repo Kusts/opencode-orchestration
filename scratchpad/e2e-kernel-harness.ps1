@@ -1,7 +1,11 @@
 # E2E harness for Task Kernel: Planner -> Coder -> Tester -> Reviewer -> DONE
 # Uses the real Task Kernel CLI with acceptance criteria + verification profile.
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\projetos\opencode-orchestration'
+$repo = Split-Path -Parent $PSScriptRoot
+$baseRevision = (& git -C $repo rev-parse HEAD 2>$null | Out-String).Trim()
+if ($baseRevision -notmatch '^[0-9a-fA-F]{40}$') {
+    throw "Could not determine a valid base revision for repo: $repo"
+}
 $kernel = Join-Path $repo 'scripts\v3\task-kernel.ps1'
 $suffix = [guid]::NewGuid().ToString('N').Substring(0,8)
 $taskId = "e2e-kernel-$suffix"
@@ -16,7 +20,7 @@ function Invoke-Kernel {
 }
 
 # 1. Create task with acceptance criteria + verification profile
-$r = Invoke-Kernel @('-Action','create','-TaskId',$taskId,'-Objective','E2E kernel validation sanity','-TaskType','implementation','-Risk','low','-Actor','planner','-AcceptanceCriteria','criterion:0:sanity','-VerifierProfiles','criterion-smoke','-BaseRevision','53d5586c688b2474b52fadf0b7d589e210b0025e','-ReadScopes','src','-WriteScopes','src','-Grants','fs.read','fs.write')
+$r = Invoke-Kernel @('-Action','create','-TaskId',$taskId,'-Objective','E2E kernel validation sanity','-TaskType','implementation','-Risk','low','-Actor','planner','-AcceptanceCriteria','criterion:0:sanity','-VerifierProfiles','criterion-smoke','-BaseRevision',$baseRevision,'-ReadScopes','src','-WriteScopes','scratchpad','-Grants','fs.read','fs.write')
 Write-Host "CREATE: ok=$($r.Json.ok) state=$($r.Json.state) rev=$($r.Json.revision)"
 if (-not $r.Json.ok) { throw "create failed: $($r.Raw)" }
 
