@@ -368,14 +368,12 @@ MERGED (commit `d554328`, merge commit `ef61761`, branch
 CI do PR #268 (run 44084526880): 6/6 checks verde (ps51 54m44s, ps7 1h11m12s,
 v2 lane 1h11m1s). A interpretacao anterior de "paralisacao por infraestrutura"
 foi corrigida pelo orientador ChatGPT: eram suites V3 longas, nao travamento.
-CI do HEAD integrado (run 44102195912): 5 jobs verdes e `ps7` com falha
-transitoria em `OrchestrationRuntimeWatchdogEnforcement.tests.ps1` (asserções
-`NO_PROGRESS`: `interrupted=False; child_alive=True` no CI, mas
-`interrupted=True; child_alive=False` em reprodução local). O mesmo teste
-produziu fail 2 (CI), fail 4 (local) e pass 0 (local) em execuções identicas:
-flake temporal de watchdog, sem relacao com as mudancas do PR (que nao tocaram
-watchdog/flags/testes). Foi feito `gh run rerun 44102195912 --failed` somente
-no job ps7, sem alterar testes nem timeouts. Evidencia em
+CI do HEAD integrado (run 44102195912, `ef61761` após merge do PR #268):
+`status=completed`, `conclusion=success`, 6/6 jobs verdes (ps51, ps7, linux
+capability collector, smoke opencode v2 real, v2 lane, smoke opencode real).
+A falha transitória anterior no `ps7` (flake de watchdog `NO_PROGRESS`,
+comprovado por reproduções locais com resultados divergentes) foi resolvida
+com `gh run rerun 44102195912 --failed` somente nesse job, sem alterar testes
+nem timeouts. Isso fecha o critério "CI verde no HEAD integrado". Evidência em
 `evidence/planner-autonomy-e2e/ci-integracao.md` (artefato local, ignorado
-pelo Git). Desfecho do rerun: em acompanhamento; se falhar novamente, registrar
-`BLOCKED_CI` com evidencia.
+pelo Git).
