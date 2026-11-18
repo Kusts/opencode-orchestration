@@ -19,7 +19,6 @@
 Regra obrigatória para este runtime, com precedência sobre a orientação genérica
 de escolher o escopo conforme o suporte do cliente:
 
-<!-- Prosa portada de agent-config/source/adapters/opencode.md (dono canônico segundo test_marker_contracts.py) em 2026-10-04; manter em sincronia ao editar lá. -->
 1. Toda chamada ai-memory com escopo de projeto (`memory_query`,
    `memory_read_page`, `memory_recent`, `memory_briefing`, `memory_explore`,
    `memory_write_page`, `memory_delete_page`, `memory_status`,
@@ -513,7 +512,7 @@ registrada em gate-closure, conforme as seções de Controlled Routing.
 
 - Model duplication: `model:`/`mode:` no frontmatter de `source/agents/*.md`
   (canônico control-plane) duplicados em `opencode.json → agent.<nome>.model`
-  /`mode` (subtree compartilhada user+control-plane; prevalece o runtime onde
+  /`mode` (subtree com donos distintos (usuário e Orquestração); prevalece o runtime onde
   houver bloco — 15/19; os 4 planning vivem só em `.md` + allowlist).
   Ownership documentada; eliminação estrutural fora de escopo.
 - DONE evidence: participação observada depende do reporting ao chamador;

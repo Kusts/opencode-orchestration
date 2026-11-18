@@ -1,7 +1,6 @@
 # Unified Agent Control Plane — política global
 
-Este arquivo é a fonte canônica da política global compartilhada. Ele define
-os defaults compartilhados da política; instruções do
+Este arquivo é a fonte canônica da política global do OpenCode. Ele define os defaults da política; instruções do
 projeto atual, do runtime e do usuário podem ser mais específicas.
 
 ## Comunicação e execução
@@ -22,7 +21,7 @@ Use esta ordem, da maior para a menor autoridade:
 1. Instruções impostas pelo sistema e pelo runtime.
 2. Pedido explícito atual do usuário.
 3. Instruções e estado do projeto atual.
-4. Política global compartilhada.
+4. Política global do runtime.
 5. Adaptador específico do runtime.
 6. Skills escolhidas contextualmente para a tarefa.
 7. Memória de outros projetos e material de referência estrangeiro.
@@ -49,7 +48,6 @@ usuário ou ampliar materialmente o escopo.
 - Resolva primeiro o projeto e o diretório de trabalho atuais.
 - Use ai-memory, quando disponível/configurado, para continuidade operacional, sempre começando pelo projeto
   atual; amplie quando os resultados locais forem ausentes ou insuficientes.
-<!-- Prosa portada de agent-config/source/global/AGENTS.md (dono canônico segundo test_marker_contracts.py) em 2026-10-04; manter em sincronia ao editar lá. -->
 - Respeite o schema real de cada ferramenta antes de montar a chamada: a regra
   do par explícito tem exceções declaradas. `memory_message_send` nomeia o
   destinatário em `to_workspace`/`to_project` e o remetente em
@@ -134,10 +132,9 @@ o mesmo contrato com suas ferramentas nativas, sem instalar outro workflow.
 Não infira autorização para commit, publicação, deploy ou limpeza a partir de
 uma skill; respeite o pedido atual e as restrições do runtime.
 
-## Skills compartilhadas
+## Skills do runtime
 
-- A fonte versionada das skills globais é `skills-core/` deste repositório; os
-  instaladas em `~/.config/opencode/skills/` no runtime.
+- As skills-core deste pacote são instaladas em `~/.config/opencode/skills/` no runtime.
 - Carregue skills pelo gatilho da tarefa. Uma skill fornece técnica e contexto,
   não precedência sobre o pedido atual nem um ritual obrigatório para todo
   trabalho.
@@ -166,17 +163,15 @@ uma skill; respeite o pedido atual e as restrições do runtime.
 - Hooks de integrações opcionais (como ai-memory), plugins e integrações externas podem executar em paralelo;
   não os remova nem altere por inferência de ausência no catálogo.
 
-## Autorização de delegação (apontador; política canônica em Agent Config #21)
+## Autorização de delegação
 
-Autorização e dimensões de benefício da delegação: Agent Config #21 (dono
-canônico; nada aqui redefine). O Planner coordena e delega; leitura/planejamento
+Autorização e dimensões de benefício da delegação. O Planner coordena e delega; leitura/planejamento
 sem mutação pode ser direto; qualquer mutação de arquivo vai a um worker
 apropriado; trivial não vira cerimônia de vários workers.
 
-## Orquestração (apontador; política canônica em Agent Config #21)
+## Orquestração
 
-Política global compartilhada: Agent Config #21 (dono canônico; nada aqui a
-redefine). Implementação de runtime neste repo: preflight condicional em
+Implementação de runtime neste repo: preflight condicional em
 `scripts/v3/orchestration-preflight.ps1` (lib
 `scripts/v3/lib/OrchestrationPreflight.ps1`), suíte
 `scripts/v3/orchestration-preflight.tests.ps1`, DONE gate em
@@ -187,9 +182,7 @@ focada); o DONE gate rejeita escrita sem participação observada.
 
 ## Fonte e destinos
 
-`{{REPO_DIR}}` é a única fonte versionada da política global.
-`{{HOME}}/.config/opencode` é o estado ativo gerado para este runtime. Projeto e integrações externas opcionais continuam donos de seus arquivos locais;
-o control plane só escreve os alvos e seções explicitamente registrados. Launchers, perfis e segredos do control plane externo são opcionais/legado e não são fornecidos por este pacote; sem eles, nada quebra (credenciais por env do runtime continuam válidas).
+Cada runtime (OpenCode, Claude Code, Codex etc.) é dono do seu próprio diretório de configuração nativo. A Orquestração instala perfis, plugin e skills-core no diretório nativo do OpenCode e preserva as chaves de usuário. Launchers, perfis e segredos do control plane externo são opcionais/legado e não são fornecidos por este pacote; sem eles, nada quebra (credenciais por env do runtime continuam válidas).
 
 Os detalhes deste runtime vivem em `source/adapters/opencode.md`; políticas de
 autonomia, conhecimento e credenciais vivem em `source/policies/`. Os arquivos

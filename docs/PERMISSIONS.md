@@ -7,7 +7,7 @@ Fonte canônica: `source/agents/*.md` (frontmatter `permission:`) + templates po
 sobrevivem intactos. Permissões `bash:`/`shell` vivem nos `.md`/template, não só no
 `opencode.json`.
 
-No V2 com o marcador completo `agent-config:global`, a **Orquestração** instala e é dona dos 19 perfis worker em `agents/*.md` e do bloco `agents` do `opencode.json` (incluindo `build`, `title` e os subagentes do escopo da Orquestração). O **Agent Config** mantém o texto global (`<!-- agent-config:global:start/end -->`) e as `permissions` de topo, além de `mcp` e demais chaves user-owned, que o instalador preserva; os perfis worker e o bloco `agents` não são sobrescritos pelo Agent Config. Sem marcador, o instalador opera em modo standalone/snapshot.
+No V2 com o marcador completo `agent-config:global`, a **Orquestração** instala e é dona dos 19 perfis worker em `agents/*.md` e do bloco `agents` do `opencode.json` (incluindo `build`, `title` e os subagentes do escopo da Orquestração). O runtime é dono do texto global (`<!-- agent-config:global:start/end -->`) e as `permissions` de topo, além de `mcp` e demais chaves user-owned, que o instalador preserva; os perfis worker e o bloco `agents` não são sobrescritos pelo runtime. Sem marcador, o instalador opera em modo standalone/snapshot.
 
 ## Tabela 19 agentes × classe × barreira
 
@@ -92,8 +92,7 @@ checks cobrem.
 O runtime 2.2.6 permite por padrão o acesso a diretórios fora do projeto;
 sem regra explícita `external_directory`, esse acesso não pede confirmação.
 O template V2 deste pacote não define essa ação. Quando o marcador
-`agent-config:global` está presente, as permissões ativas pertencem ao Agent
-Config e este instalador não as altera. Quem precisar de confirmação ou bloqueio
+`agent-config:global` está presente, as permissões ativas pertencem ao dono da configuração nativa do runtime e este instalador não as altera. Quem precisar de confirmação ou bloqueio
 deve configurar uma regra `external_directory` no dono da configuração ativa;
 não inferir contenção a partir de `runtime_grant_enforcement.v2`, que permanece
 OFF/HOLD.
