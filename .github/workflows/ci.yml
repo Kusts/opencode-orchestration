@@ -170,7 +170,11 @@ jobs:
           }
 
       - name: Provision OpenCode V2 profile (pinned, official npm package)
-        run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
+        run: |
+          $profileRoot = Join-Path $env:RUNNER_TEMP 'oo-profile-v2'
+          powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -ProfileRoot $profileRoot -RuntimeId opencode-v2 -ProvisionRuntime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ('OO_PROFILE_ROOT={0}' -f $profileRoot) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Distribution suites (13 suites, install transacional)
         run: powershell -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
@@ -237,7 +241,11 @@ jobs:
           }
 
       - name: Provision OpenCode V2 profile (pinned, official npm package)
-        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
+        run: |
+          $profileRoot = Join-Path $env:RUNNER_TEMP 'oo-profile-v2'
+          pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -ProfileRoot $profileRoot -RuntimeId opencode-v2 -ProvisionRuntime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ('OO_PROFILE_ROOT={0}' -f $profileRoot) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Distribution suites (13 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
@@ -321,7 +329,11 @@ jobs:
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/v3/run-v3-tests.ps1
 
       - name: Provision OpenCode V2 profile (pinned, official npm package)
-        run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -RuntimeId opencode-v2 -ProvisionRuntime
+        run: |
+          $profileRoot = Join-Path $env:RUNNER_TEMP 'oo-profile-v2'
+          pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File scripts/runtime/new-opencode-profile.ps1 -ProfileRoot $profileRoot -RuntimeId opencode-v2 -ProvisionRuntime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ('OO_PROFILE_ROOT={0}' -f $profileRoot) | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Distribution suites (13 suites, install transacional)
         run: pwsh -NoProfile -NoLogo -ExecutionPolicy Bypass -File tests/distribution/run-distribution-tests.ps1
