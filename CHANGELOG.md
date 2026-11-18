@@ -6,7 +6,8 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
-- **F4 — post-merge GitHub (2026-11-18):** CLI Plan/Apply valida PR MERGED,
+- **F3 - permissões em runtime (2026-11-18): HOLD** — `Plan` read-only e testes focados 8/8 PASS; `Run` abortou antes de alterar serviço por divergência pin 2.3.0/runtime 2.3.2. Sem evento de permissão consumido, não há certificação; serviço real preservado. Evidência: `evidence/operational-maturity-2026-11-18/F3-permissions-hold.md`.
+- **F4 - post-merge GitHub (2026-11-18):** CLI Plan/Apply valida PR MERGED,
   checks verdes e ancestralidade antes de atualizar a base via `--ff-only`;
   limpeza de worktrees/branches é condicionada a ownership, estado limpo,
   ancestralidade, caminhos canônicos e probe de sessão bem-sucedido, com
