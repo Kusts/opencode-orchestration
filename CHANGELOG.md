@@ -6,6 +6,18 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+- **F4 — post-merge GitHub (2026-11-18):** CLI Plan/Apply valida PR MERGED,
+  checks verdes e ancestralidade antes de atualizar a base via `--ff-only`;
+  limpeza de worktrees/branches é condicionada a ownership, estado limpo,
+  ancestralidade, caminhos canônicos e probe de sessão bem-sucedido, com
+  preservação fail-closed e resultado `removed[]`/`preserved[]`. Exclusão
+  segura usa `git branch -d`; default legado inalterado. Testes em repo
+  descartável/fakes: 16 assertions PASS; Ownership 82/82; tester PASS e
+  security-reviewer APPROVED; `git diff --check` limpo. Sem gh real com
+  escrita, merge/push ou alteração de configuração ativa. Evidência:
+  `evidence/operational-maturity-2026-11-18/F4-post-merge.md`; plano:
+  `docs/plans/ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md`. Residual: Orca
+  schema/TOCTOU; squash não remove automaticamente; F2 segue HOLD.
 - **Autonomia consolidada (PR #272):** desacoplamento, duas certificações reais em projetos distintos e issue #48 validada; evidências em `evidence/orchestration-autonomy-2026-11-17/RELATORIO.md`.
 - **#50/#141 COBERTAS (2026-11-12, revisão R3 estruturada):** #50 leu os 5 pins do registry, baseline re-medido no merge `c05744f` sobre pin 2.3.0: 3 literais em 37 path:line (25 registros de registry, 7 fixtures, 4 comentário/doc, 1 product code), sem comparador de versão. Residual: allowlist hardcoded `OrchestrationModelRouter.ps1:2665`; nenhuma troca executada. Evidência regenerada em `evidence/issue-50/pinned-versions-audit.json`. #141 parseou templates JSON, frontmatter pelo `Split-AgentFileText` e grants JSON; 0 tokens cross-surface e Agent Config sem declarações estruturadas. Nenhuma permissão alterada; remoção não aplicável. Correção transparente: totais R1/R2 (126/108/536/4) foram artefatos dos scanners regex/prosa e substituídos pelo método estruturado.
 - **follow-up: reancorar baselines de auditoria por símbolo em vez de linha:** alguns guards/call sites ainda são validados por número de linha, vulnerável a deslocamento por edições não relacionadas; migrar para âncoras por nome de função exige alteração maior e fica fora desta correção.
