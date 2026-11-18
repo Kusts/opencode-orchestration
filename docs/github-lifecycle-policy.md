@@ -230,6 +230,19 @@ antes do merge**, como commit normal da branch. Fatos ocorridos após o merge
 exclusivamente via **follow-up docs PR** — nunca via commit direto em
 `master`.
 
+### 8.1. Pós-merge local (one-shot)
+
+Após o encerramento normal da PR, `scripts/v3/github-post-merge.ps1` pode
+confirmar o estado mesclado e, em `-Mode Apply` explícito, atualizar a base
+local somente por fast-forward. Checkout sujo, divergência ou snapshot
+incompleto bloqueiam a sincronização. Worktrees relacionados só podem ser
+removidos quando marcador/ownership, limpeza e integração à base forem provados
+e o probe de liveness confirmar ausência de sessão ativa. O CLI aceita
+`-SessionProbeCommand` injetável; sem ele tenta `orca worktree ps --json`.
+Probe ausente, ambíguo ou falho preserva o worktree com motivo no JSON.
+O comando não faz merge/push e não é daemon, watcher nem rotina periódica de
+limpeza cega; `Plan` é o modo padrão e não muta o repositório.
+
 ## 9. Break-glass (emergência real)
 
 Incident, outage ou emergência de segurança podem furar as seções 1–7
