@@ -535,7 +535,8 @@ function Remove-OrchestrationWorktree {
         [string]$RepoRoot = '',
         [string]$GitRepoDir = '',
         [switch]$Force,
-        [switch]$DeleteBranch
+        [switch]$DeleteBranch,
+        [switch]$SafeBranchDelete
     )
     try {
         $tid = ([string]$TaskId).Trim()
@@ -589,7 +590,11 @@ function Remove-OrchestrationWorktree {
             }
         }
         if ([bool]$DeleteBranch -and ($mbranch -ceq $expectedBranch)) {
-            $null = Invoke-WorktreeGit -RepoDir $gitDir -GitArgs @('branch', '-D', $mbranch)
+            $deleteFlag = if ([bool]$SafeBranchDelete) { '-d' } else { '-D' }
+            $branchDelete = Invoke-WorktreeGit -RepoDir $gitDir -GitArgs @('branch', $deleteFlag, $mbranch)
+            if ([bool]$SafeBranchDelete -and -not [bool]$branchDelete.ok) {
+                return (New-WorktreeError -Code 'BRANCH_DELETE_FAILED' -Extra @{ branch = $mbranch })
+            }
         }
         if (Test-Path -LiteralPath $wtPath) {
             return (New-WorktreeError -Code 'GIT_FAILED' -Extra @{ detail = 'worktree path still present after git worktree remove' })
