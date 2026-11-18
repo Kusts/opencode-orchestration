@@ -18,6 +18,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   `evidence/operational-maturity-2026-11-18/F4-post-merge.md`; plano:
   `docs/plans/ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md`. Residual: Orca
   schema/TOCTOU; squash não remove automaticamente; F2 segue HOLD.
+- **F2 — certificação do instalador em HOME temporário:** instalação,
+  reinstalação e referência concluídas com idempotência; HOME novo equivalente
+  e hashes dos caminhos ativos inalterados. Descoberta runtime de agentes e
+  smoke Planner→worker permanecem HOLD. Evidência:
+  `evidence/operational-maturity-2026-11-18/F2-installer-certification.md`;
+  plano: `docs/plans/ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md`.
+- **F1 — guardrail de alvos de escrita:** bloqueia destinos implícitos na
+  configuração ativa; inclui correções do guardrail, do provisionamento CI V2
+  em `RUNNER_TEMP` e do `ProfileRoot` derivado de `TargetHome` no modo Both.
+  Evidência: `evidence/operational-maturity-2026-11-18/F1-guardrail.md`;
+  plano: `docs/plans/ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md`.
 - **Autonomia consolidada (PR #272):** desacoplamento, duas certificações reais em projetos distintos e issue #48 validada; evidências em `evidence/orchestration-autonomy-2026-11-17/RELATORIO.md`.
 - **#50/#141 COBERTAS (2026-11-12, revisão R3 estruturada):** #50 leu os 5 pins do registry, baseline re-medido no merge `c05744f` sobre pin 2.3.0: 3 literais em 37 path:line (25 registros de registry, 7 fixtures, 4 comentário/doc, 1 product code), sem comparador de versão. Residual: allowlist hardcoded `OrchestrationModelRouter.ps1:2665`; nenhuma troca executada. Evidência regenerada em `evidence/issue-50/pinned-versions-audit.json`. #141 parseou templates JSON, frontmatter pelo `Split-AgentFileText` e grants JSON; 0 tokens cross-surface e Agent Config sem declarações estruturadas. Nenhuma permissão alterada; remoção não aplicável. Correção transparente: totais R1/R2 (126/108/536/4) foram artefatos dos scanners regex/prosa e substituídos pelo método estruturado.
 - **follow-up: reancorar baselines de auditoria por símbolo em vez de linha:** alguns guards/call sites ainda são validados por número de linha, vulnerável a deslocamento por edições não relacionadas; migrar para âncoras por nome de função exige alteração maior e fica fora desta correção.

@@ -19,6 +19,7 @@ param(
   [ValidateSet('opencode-v1', 'opencode-v2')]
   [string]$RuntimeId = 'opencode-v2',
   [switch]$ProvisionRuntime,
+  [switch]$AllowUserProfileTarget,
   [string]$BinaryPath = '',
   [int]$ServicePort = 0
 )
@@ -31,7 +32,7 @@ $lib = Join-Path $RepoRoot 'scripts\runtime\New-OrchestrationProfile.ps1'
 . $lib
 
 try {
-  $info = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $ProfileRoot -RuntimeId $RuntimeId -ProvisionRuntime:$ProvisionRuntime -BinaryOverride $BinaryPath -ServicePort $ServicePort
+  $info = New-OrchestrationProfile -RepoRoot $RepoRoot -ProfileRoot $ProfileRoot -RuntimeId $RuntimeId -ProvisionRuntime:$ProvisionRuntime -AllowUserProfileTarget:$AllowUserProfileTarget -BinaryOverride $BinaryPath -ServicePort $ServicePort
   if (-not [string]::IsNullOrWhiteSpace([string]$info.WrapperPath)) {
     Write-Host ('wrapper: ' + [string]$info.WrapperPath) -ForegroundColor Green
   }

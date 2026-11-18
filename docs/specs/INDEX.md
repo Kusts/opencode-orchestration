@@ -63,6 +63,7 @@ Este índice mapeia todas as especificações e planos técnicos mantidos no rep
 | [OPENCODE-RUNTIME-ADAPTIVE-COMPATIBILITY-SPEC.md](OPENCODE-RUNTIME-ADAPTIVE-COMPATIBILITY-SPEC.md) | active | SPEC de compatibilidade adaptativa dual-runtime V1/V2 |
 | [OPENCODE-RUNTIME-ADAPTIVE-COMPATIBILITY-PLAN.md](OPENCODE-RUNTIME-ADAPTIVE-COMPATIBILITY-PLAN.md) | active | Plano de implementação de compatibilidade adaptativa |
 | [ORFS-SUPERVISED-COOPERATIVE-LANE-ADR.md](ORFS-SUPERVISED-COOPERATIVE-LANE-ADR.md) | active | ADR sobre supervisão cooperativa em lanes de execução |
+| [ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md](../plans/ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md) | planned | Plano de certificação operacional incremental (F0–F6); sem framework novo |
 
 ---
 

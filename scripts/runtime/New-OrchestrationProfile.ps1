@@ -20,6 +20,7 @@ if (-not (Test-Path -LiteralPath $P7VersionsLib -PathType Leaf)) {
   throw 'P7-PROFILE-FAIL: loader de versoes ausente (scripts/runtime/lib/RuntimeVersions.ps1); pin deve vir de source/registry/runtime-versions.json.'
 }
 . $P7VersionsLib
+. (Join-Path $PSScriptRoot 'lib\OrchestrationTargetGuard.ps1')
 
 # Preflight lib preload em escopo de biblioteca (fix RR-P22-FIX1 finding 6):
 # dot-source AQUI no top-level do modulo, nunca dentro de funcao (senao as
@@ -1296,6 +1297,7 @@ function New-OrchestrationProfile {
   param(
     [string]$RepoRoot = '',
     [string]$ProfileRoot = '',
+    [switch]$AllowUserProfileTarget,
     [string]$RuntimeId = '',
     [switch]$ProvisionRuntime,
     [string]$BinaryOverride = '',
@@ -1310,6 +1312,7 @@ function New-OrchestrationProfile {
     throw ('P7-PROFILE-FAIL: RepoRoot invalido: ' + $RepoRoot)
   }
   if ([string]::IsNullOrWhiteSpace($ProfileRoot)) { $ProfileRoot = Get-P7DefaultProfileRoot }
+  Assert-OrchestrationMutatingTargetAllowed -TargetPath $ProfileRoot -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('ProfileRoot') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['ProfileRoot'])) -OptIn:$AllowUserProfileTarget
   if ([string]::IsNullOrWhiteSpace($RuntimeId)) {
     throw 'P7-PROFILE-FAIL: RuntimeId vazio (esperado opencode-v1|opencode-v2).'
   }
@@ -1511,6 +1514,7 @@ function Remove-P7Profile {
   param(
     [string]$RepoRoot = '',
     [string]$ProfileRoot = '',
+    [switch]$AllowUserProfileTarget,
     [string]$Profile = ''
   )
   if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -1519,6 +1523,7 @@ function Remove-P7Profile {
     try { $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $here '..\..')).Path } catch { }
   }
   if ([string]::IsNullOrWhiteSpace($ProfileRoot)) { $ProfileRoot = Get-P7DefaultProfileRoot }
+  Assert-OrchestrationMutatingTargetAllowed -TargetPath $ProfileRoot -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('ProfileRoot') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['ProfileRoot'])) -OptIn:$AllowUserProfileTarget
   if (($Profile -ne 'v1') -and ($Profile -ne 'v2')) {
     throw ('P7-PROFILE-FAIL: Profile invalido (esperado v1|v2): ' + $Profile)
   }

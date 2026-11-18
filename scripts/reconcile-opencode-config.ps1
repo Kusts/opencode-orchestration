@@ -22,7 +22,8 @@ param(
     [string]$RepoDir,
     [ValidateSet('', 'V1', 'V2')]
     [string]$Runtime = '',
-    [switch]$Apply
+    [switch]$Apply,
+    [switch]$AllowUserProfileTarget
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +32,8 @@ if (-not [string]::IsNullOrWhiteSpace($HomeDir)) { $UserProfileRoot = $HomeDir }
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($GeneratedRoot)) { $GeneratedRoot = Join-Path $RepoRoot 'generated' }
 if ([string]::IsNullOrWhiteSpace($UserProfileRoot)) { $UserProfileRoot = $env:USERPROFILE }
+. (Join-Path $PSScriptRoot 'runtime\lib\OrchestrationTargetGuard.ps1')
+Assert-OrchestrationMutatingTargetAllowed -TargetPath $UserProfileRoot -ExplicitTargetProvided:(($PSBoundParameters.ContainsKey('UserProfileRoot') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['UserProfileRoot'])) -or ($PSBoundParameters.ContainsKey('HomeDir') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['HomeDir']))) -OptIn:$AllowUserProfileTarget
 if ([string]::IsNullOrWhiteSpace($BackupRoot)) { $BackupRoot = Join-Path $UserProfileRoot '.config\opencode\reconciliation-backups' }
 if ([string]::IsNullOrWhiteSpace($HomeDir)) { $HomeDir = $UserProfileRoot }
 if ([string]::IsNullOrWhiteSpace($RepoDir)) { $RepoDir = $RepoRoot }

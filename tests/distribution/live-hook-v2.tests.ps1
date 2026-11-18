@@ -42,9 +42,10 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $pin = (Get-OrchestrationRuntimeVersion -Name v2 -RepoRoot $RepoRoot).Version
 $ExpectedVersionLine = ('opencode v' + $pin)
 
-$ProvisionedExe = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\cli\bin\opencode.exe'
-$SdkPkg = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\sdk\package.json'
-$PluginPkg = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles\v2\runtime\node_modules\@opencode\plugin\package.json'
+$ProfileRoot = if (-not [string]::IsNullOrWhiteSpace($env:OO_PROFILE_ROOT)) { $env:OO_PROFILE_ROOT } else { Join-Path $env:USERPROFILE '.opencode-orchestration\profiles' }
+$ProvisionedExe = Join-Path $ProfileRoot 'v2\runtime\node_modules\@opencode\cli\bin\opencode.exe'
+$SdkPkg = Join-Path $ProfileRoot 'v2\runtime\node_modules\@opencode\sdk\package.json'
+$PluginPkg = Join-Path $ProfileRoot 'v2\runtime\node_modules\@opencode\plugin\package.json'
 $TmpBase = Join-Path ([IO.Path]::GetTempPath()) 'opencode'
 $TmpRoot = Join-Path $TmpBase ('rr-p24-livehook-' + [guid]::NewGuid().ToString('N'))
 $ProfileDir = Join-Path $TmpRoot 'v2'

@@ -49,7 +49,7 @@ copy models.example.jsonc models.jsonc
 .\install.ps1 -Runtime Both               # perfis isolados V1+V2 = migração/perfis legados (fail-closed sem binários provados)
 ```
 
-Divisão de responsabilidades (OpenCode V2): a **Orquestração** é dona dos 19 perfis worker e do bloco `agents` (execução/delegação/modelos de perfil); o **Agent Config** compartilha texto global/instruções, `permissions` de topo, skills centrais, MCP e demais runtimes. `models.jsonc` e credenciais permanecem do usuário.
+Divisão de responsabilidades (OpenCode V2): a **Orquestração** é dona dos 19 perfis worker e do bloco `agents` (execução/delegação/modelos de perfil); cada runtime é dono da sua configuração nativa; a Orquestração instala perfis, plugin e skills-core no diretório nativo do OpenCode e preserva `permissions` de topo, `mcp` e chaves de usuário. `models.jsonc` e credenciais permanecem do usuário.
 
 Detalhes passo a passo em [docs/INSTALLATION.md](docs/INSTALLATION.md)
 (inclui perfis isolados e `-ProvisionRuntime`).
@@ -147,8 +147,7 @@ git pull
 
 O instalador é idempotente e ownership-aware: só atualiza o que pertence ao
 pacote; customização sua com hash divergente é mantida (o uninstall avisa
-com `KEEP` em vez de remover). A instalação é nativa e independente do
-agent-config: instala seus próprios artefatos e registra
+com `KEEP` em vez de remover). A instalação é nativa e independente: instala seus próprios artefatos no diretório do runtime e registra
 `config_ownership=orchestration-snapshot` no manifest.
 V1 permanece frozen.
 

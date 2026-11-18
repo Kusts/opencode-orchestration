@@ -19,6 +19,7 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
   [string]$TargetHome,
+  [switch]$AllowUserProfileTarget,
   [string]$ManifestPath,
   [ValidateSet('Auto', 'V1', 'V2')]
   [string]$Runtime = 'Auto'
@@ -27,6 +28,9 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE }
+$TargetGuardLib = Join-Path $PSScriptRoot 'scripts\runtime\lib\OrchestrationTargetGuard.ps1'
+. $TargetGuardLib
+Assert-OrchestrationMutatingTargetAllowed -TargetPath $TargetHome -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('TargetHome') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['TargetHome'])) -OptIn:$AllowUserProfileTarget
 $ocDir = Join-Path $TargetHome '.config\opencode'
 if ([string]::IsNullOrWhiteSpace($ManifestPath)) {
   $ManifestPath = Join-Path $TargetHome '.opencode-orchestration\manifest.json'

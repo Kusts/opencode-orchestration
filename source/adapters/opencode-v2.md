@@ -217,7 +217,7 @@ verificação, evidência e `DONE`.
    Tester/Reviewer por ritual.
 3. **MULTI_WORKER / PERSISTENT_GOAL (não trivial):** roteamento existente com
    contrato delimitado; delegação quando houver benefício concreto (dimensões
-   da política compartilhada em Agent Config #21), sem exigência incondicional
+   da política global do runtime), sem exigência incondicional
    por impacto funcional.
 
 ### Adaptive Parallelism Governor
@@ -285,8 +285,7 @@ O Planner `build` é o único control plane: decide arquitetura, decompõe,
 seleciona o menor grupo útil, define ownership, integra evidências e encerra
 o trabalho. Workers não coordenam nem subdelegam. Para engenharia substantiva,
 a delegação é condicional: o Planner avalia e usa o menor conjunto de workers
-quando trouxer benefício concreto (dimensões da política compartilhada em Agent
-Config #21: modelo econômico, preservação do contexto principal, isolamento de
+quando trouxer benefício concreto (dimensões da política global do runtime: modelo econômico, preservação do contexto principal, isolamento de
 grande volume, especialização técnica, análise/revisão independente, menor
 retrabalho, paralelismo útil, qualidade e custo total até o DONE verificado);
 alteração trivial e claramente localizada pode permanecer direta.
@@ -675,7 +674,7 @@ registrada em gate-closure, conforme as seções de Controlled Routing.
 
 - Model duplication: `model:`/`mode:` no frontmatter de `source/agents/*.md`
   (canônico control-plane) duplicados em `opencode.json → agents.<nome>.model`
-  /`mode` (subtree compartilhada user+control-plane; prevalece o runtime onde
+  /`mode` (subtree com donos distintos (usuário e Orquestração); prevalece o runtime onde
   houver bloco — 15/19; os 4 planning vivem só em `.md` + allowlist).
   Ownership documentada; eliminação estrutural fora de escopo.
 - DONE evidence: participação observada depende do reporting ao chamador;
