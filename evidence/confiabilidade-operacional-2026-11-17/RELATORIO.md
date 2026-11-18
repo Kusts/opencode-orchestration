@@ -43,7 +43,21 @@ O operador autorizou a prova autenticada; o orientador respondeu `EXECUTAR` com 
 - `POLICY_VERIFIED`: **NÃO COMPROVADO**. Com config sintética (`allow echo ALLOW_TEST*`, `ask echo ASK_TEST*`, `deny git reset --hard*`), `echo ALLOW_TEST` e `echo ASK_TEST` retornaram 204/completed, sem gate de aprovação observado para o segundo. `git -C <repo-temp> reset --hard HEAD` também retornou 204/completed e teve efeito real no repositório temporário, mas não casou com `git reset --hard*` por causa do prefixo `git -C`; portanto `deny` não foi exercitado e `ask` não foi distinguido de `allow`.
 - `ACTIVE_RUNTIME_VERIFIED`: permanece `BLOCKED_RUNTIME_PROOF`; provar na configuração efetiva exigiria modificá-la.
 
-**Incidente de isolamento:** apesar de `HOME`/`XDG`/`APPDATA`/`USERPROFILE` descartáveis, `%USERPROFILE%\.config\opencode\opencode.json` foi sobrescrito (33278 → 390 bytes, config sintética). A causa raiz não foi determinada; é provável resolução de caminho canônico no Windows. O arquivo foi restaurado de backup e verificado independentemente com hash idêntico ao baseline pré-teste `6EAFD1DF3FF5F231F8886A31D400309F689A314BD3B56C3E565FE53597776D97` (33278 bytes). Nenhum outro arquivo foi alterado; o arquivo corrompido foi preservado apenas como evidência temporária. Nenhuma credencial real foi usada e nenhuma sessão foi criada no servidor ativo.
+**Incidente de isolamento:** apesar de `HOME`/`XDG`/`APPDATA`/`USERPROFILE` descartáveis, `%USERPROFILE%\.config\opencode\opencode.json` foi sobrescrito (33278 → 390 bytes, config sintética). A hipótese de resolução de caminho canônico no Windows não se sustenta: a escrita no arquivo real (`mtime` `2026-11-18T01:39:18.9165Z`) ocorreu 2 ms depois da escrita da config sintética no temp (`2026-11-18T01:39:18.9140Z`); conteúdo igual (390 B, hash `61504E2C…4351E`), mas `mtimes` distintos, sem hardlink/junção. O primeiro `opencode serve` só aparece nos logs às `01:42:30Z`, cerca de 3 minutos depois, e não há `config.update`/`PATCH /config` nem acesso a `~\.config` no log. Logo, a gravação foi provavelmente feita pelo script de preparação do ensaio, não pelo CLI. **A causa não foi comprovada definitivamente**, pois o script de preparação não foi preservado. O arquivo foi restaurado de backup e verificado independentemente com hash idêntico ao baseline pré-teste `6EAFD1DF3FF5F231F8886A31D400309F689A314BD3B56C3E565FE53597776D97` (33278 bytes). Nenhum outro arquivo foi alterado; o arquivo corrompido foi preservado apenas como evidência temporária. Nenhuma credencial real foi usada e nenhuma sessão foi criada no servidor ativo.
+
+### Isolamento de config no Windows — diagnóstico e estratégia
+
+O código usa `os.homedir()` como base; `XDG_CONFIG_HOME || join(home, ".config")`; `config = join(xdg, "opencode")`; e `tmp = join(os.tmpdir(), "opencode")`. `HOME` não entra nesse cálculo. `OPENCODE_TEST_HOME` controla `Path.home`; `OPENCODE_CONFIG_DIR`/`OPENCODE_CONFIG_CONTENT` são overrides de carregamento, enquanto `Global.Path.config` (XDG) continua presente em `directories()`. `debug paths` imprime `Global.Path` e pode divergir do config efetivo do serviço. Diretórios XDG são criados no carregamento do módulo.
+
+**Veredito: `ISOLATION_DESIGN_READY`** — proposta fundamentada, **não validada por execução**.
+
+Receita mínima proposta (não executada):
+- Gatear por hash o perfil real antes e depois do ensaio.
+- Definir todas as variáveis no processo filho: `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, `OPENCODE_TEST_HOME`, `TEMP`/`TMP` e `OPENCODE_CONFIG_CONTENT` ou `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR` dentro da base efêmera.
+- Fazer o script de preparação nunca usar `$env:USERPROFILE`/`$HOME` para construir destinos e validar que os destinos ficam sob a base temporária.
+- Considerar WSL/distro dedicada para isolamento forte.
+
+Risco residual: os XDG são lidos no carregamento do módulo; overrides parciais não bastam; a autoria exata da sobrescrita não foi comprovada.
 
 **Lição/gate para futuros ensaios:** exigir confirmação por hash de que nada fora do diretório temporário foi escrito antes de aceitar `POLICY_VERIFIED`; usar sandbox/contêiner ou override de configuração confirmado; empregar comandos que casem exatamente os padrões; observar eventos `/api/session/{id}/permission*` para distinguir `ask` de `allow`/`deny`, sem inferir o resultado a partir de HTTP 204.
 
@@ -51,7 +65,7 @@ Issue #141 foi atualizada com estes resultados. O HOLD da retomada foi preservad
 
 ## Encerramento e pendências
 
-`AUTH_VERIFIED` atingido; `POLICY_VERIFIED` não comprovado; ativo permanece `BLOCKED_RUNTIME_PROOF`; configuração ativa restaurada com sucesso. HOLD para retomada automática aceito como parte do objetivo. Nenhuma correção de código aplicada: não houve defeito reproduzível.
+`AUTH_VERIFIED` atingido; `POLICY_VERIFIED` não comprovado; `ACTIVE_RUNTIME_VERIFIED`/ambiente ativo permanece `BLOCKED_RUNTIME_PROOF`; configuração ativa restaurada e verificada. HOLD para retomada automática aceito como parte do objetivo. Nenhuma nova prova de permissões foi executada nesta investigação. Nenhuma correção de código aplicada: não houve defeito reproduzível.
 
 Issue #141 atualizada com estes resultados; issue #193 referenciada para as condições de reavaliação da retomada. Sem novas issues.
 
