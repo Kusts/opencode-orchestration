@@ -282,8 +282,9 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $hH '.opencode-orchestration\man
 
 # (i) Both bloqueado --------------------------------------------------------------------
 $hI = New-TestHome 'i' 'V1'
-$null = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $hI -Runtime Both 2>&1
+$outI = & (Join-Path $RepoRoot 'install.ps1') -TargetHome $hI -Runtime Both 2>&1 | Out-String
 Assert ($LASTEXITCODE -eq 6) 'i: -Runtime Both => exit 6'
+Assert ($outI -notmatch 'MUTATING_TARGET_REQUIRES_EXPLICIT_PATH') 'i: Both bloqueado sem excecao do guard'
 Assert (-not (Test-Path -LiteralPath (Join-Path $hI '.opencode-orchestration\manifest.json') -PathType Leaf)) 'i: nada escrito com Both'
 
 # (j) Auto com binario V2 ---------------------------------------------------------------

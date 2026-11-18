@@ -1248,7 +1248,8 @@ if ($runtimeMode -eq 'Both') {
   # individuais, removiveis por Remove-P7Profile).
   $BothProfileRoot = $ProfileRoot
   if ([string]::IsNullOrWhiteSpace($BothProfileRoot)) {
-    $BothProfileRoot = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles'
+    $BothProfileHome = if ($PSBoundParameters.ContainsKey('TargetHome')) { $TargetHome } else { $env:USERPROFILE }
+    $BothProfileRoot = Join-Path $BothProfileHome '.opencode-orchestration\profiles'
   }
   Assert-OrchestrationMutatingTargetAllowed -TargetPath $BothProfileRoot -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('ProfileRoot') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['ProfileRoot'])) -OptIn:$AllowUserProfileTarget
   . (Join-Path $RepoRoot 'scripts\runtime\New-OrchestrationProfile.ps1')
