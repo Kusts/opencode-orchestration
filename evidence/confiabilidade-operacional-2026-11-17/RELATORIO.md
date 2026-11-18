@@ -34,10 +34,25 @@ Resultados: `p0-autonomy-proof` 14/14; `retry-decision-e2e` 6/6; `OrchestrationC
 
 `p0-autonomy-proof`: 14/14; `retry-decision-e2e`: 6/6; `OrchestrationCorrectiveE2E`: 119 assertions; `test-package-consistency`: 17/17; `git diff --check`: limpo. Todos executados novamente, sem divergência.
 
+## Prova autenticada controlada (2026-11-18)
+
+O operador autorizou a prova autenticada; o orientador respondeu `EXECUTAR` com o método HTTP Basic V2.
+
+- `AUTH_VERIFIED`: **SIM**. `GET /api/info` em servidor descartável retornou 401 sem credencial e 200 com `Authorization: Basic`; foi usado o usuário fixo `opencode` e senha efêmera somente em variável de ambiente. Versão efetiva: 2.3.0.
+- O caminho de execução sem provider foi `POST /api/session` e `POST /api/session/{id}/shell`, descoberto via `/openapi.json`.
+- `POLICY_VERIFIED`: **NÃO COMPROVADO**. Com config sintética (`allow echo ALLOW_TEST*`, `ask echo ASK_TEST*`, `deny git reset --hard*`), `echo ALLOW_TEST` e `echo ASK_TEST` retornaram 204/completed, sem gate de aprovação observado para o segundo. `git -C <repo-temp> reset --hard HEAD` também retornou 204/completed e teve efeito real no repositório temporário, mas não casou com `git reset --hard*` por causa do prefixo `git -C`; portanto `deny` não foi exercitado e `ask` não foi distinguido de `allow`.
+- `ACTIVE_RUNTIME_VERIFIED`: permanece `BLOCKED_RUNTIME_PROOF`; provar na configuração efetiva exigiria modificá-la.
+
+**Incidente de isolamento:** apesar de `HOME`/`XDG`/`APPDATA`/`USERPROFILE` descartáveis, `%USERPROFILE%\.config\opencode\opencode.json` foi sobrescrito (33278 → 390 bytes, config sintética). A causa raiz não foi determinada; é provável resolução de caminho canônico no Windows. O arquivo foi restaurado de backup e verificado independentemente com hash idêntico ao baseline pré-teste `6EAFD1DF3FF5F231F8886A31D400309F689A314BD3B56C3E565FE53597776D97` (33278 bytes). Nenhum outro arquivo foi alterado; o arquivo corrompido foi preservado apenas como evidência temporária. Nenhuma credencial real foi usada e nenhuma sessão foi criada no servidor ativo.
+
+**Lição/gate para futuros ensaios:** exigir confirmação por hash de que nada fora do diretório temporário foi escrito antes de aceitar `POLICY_VERIFIED`; usar sandbox/contêiner ou override de configuração confirmado; empregar comandos que casem exatamente os padrões; observar eventos `/api/session/{id}/permission*` para distinguir `ask` de `allow`/`deny`, sem inferir o resultado a partir de HTTP 204.
+
+Issue #141 foi atualizada com estes resultados. O HOLD da retomada foi preservado e está fora desta prova.
+
 ## Encerramento e pendências
 
-Critérios atendidos, exceto prova comportamental de permissões, registrada como `BLOCKED_RUNTIME_PROOF`. HOLD para retomada automática aceito como parte do objetivo. Nenhuma correção de código aplicada: não houve defeito reproduzível.
+`AUTH_VERIFIED` atingido; `POLICY_VERIFIED` não comprovado; ativo permanece `BLOCKED_RUNTIME_PROOF`; configuração ativa restaurada com sucesso. HOLD para retomada automática aceito como parte do objetivo. Nenhuma correção de código aplicada: não houve defeito reproduzível.
 
-Issue #141 atualizada com o gap e o achado HIGH redigido; issue #193 referenciada para as condições de reavaliação da retomada. Sem novas issues.
+Issue #141 atualizada com estes resultados; issue #193 referenciada para as condições de reavaliação da retomada. Sem novas issues.
 
-Pendências: prova de execução allow/ask/deny depende de primitiva nativa ou fixture autenticada fora deste escopo; atualização do plugin 2.0.28 para 2.3.0 e regra SSH são decisões do operador.
+Pendências: comprovar allow/ask/deny em ensaio isolado, com comandos que casem exatamente os padrões, observação dos eventos de permissão e verificação por hash de que nada fora do temporário foi escrito. A atualização do plugin 2.0.28 para 2.3.0 e a regra SSH continuam decisões do operador.
