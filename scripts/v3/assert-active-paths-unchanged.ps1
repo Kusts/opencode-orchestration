@@ -3,11 +3,14 @@ param(
   [Parameter(Mandatory)][ValidateSet('Capture','Verify')][string]$Mode,
   [string]$Output,
   [Alias('Input')][string]$BaselinePath,
-  [string[]]$Paths = @(),
+  [AllowEmptyString()][string[]]$Paths = @(),
   [string[]]$ProtectedRootsOverride = @()
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\runtime\lib\OrchestrationTargetGuard.ps1')
+for ($i = 0; $i -lt $Paths.Count; $i++) {
+  if ([string]::IsNullOrWhiteSpace([string]$Paths[$i])) { throw "ACTIVE_PATH_INVALID: Paths[$i] is null or empty." }
+}
 if ($PSBoundParameters.ContainsKey('ProtectedRootsOverride')) {
   $protectedRoots = @(Get-OrchestrationProtectedRoots -ProtectedRootsOverride $ProtectedRootsOverride)
 } else {
@@ -19,12 +22,18 @@ foreach ($pathArg in $Paths) {
 }
 if (-not [string]::IsNullOrWhiteSpace($Output)) {
   $outputCheck = [IO.Path]::GetFullPath($Output)
-  foreach ($root in $protectedRoots) {
-    if (Test-OrchestrationPathUnderRoot $outputCheck $root) { throw ('ACTIVE_PATH_OUTPUT_IN_PROFILE: -Output sob raiz protegida: ' + $outputCheck) }
+  try {
+    $guardArgs = @{ TargetPath=$outputCheck; ExplicitTargetProvided=$true; OptIn=$false }
+    if ($PSBoundParameters.ContainsKey('ProtectedRootsOverride')) { $guardArgs.ProtectedRootsOverride = $ProtectedRootsOverride }
+    Assert-OrchestrationMutatingTargetAllowed @guardArgs
+  } catch {
+    throw ('ACTIVE_PATH_OUTPUT_IN_PROFILE: ' + $_.Exception.Message)
   }
 }
-function Get-ActivePathRecord([string]$Path) {
-  $full = [IO.Path]::GetFullPath($Path)
+function Get-ActivePathRecord([string]$InputPath) {
+  if ([string]::IsNullOrWhiteSpace($InputPath)) { throw 'ACTIVE_PATH_INVALID: baseline path is null or empty.' }
+  try { $full = [IO.Path]::GetFullPath($InputPath) }
+  catch { throw ("ACTIVE_PATH_INVALID: invalid path value [$InputPath]: " + $_.Exception.Message) }
   if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { return [ordered]@{ path=$full; missing=$true } }
   $item = Get-Item -LiteralPath $full
   return [ordered]@{
@@ -50,13 +59,17 @@ if ($Mode -eq 'Capture') {
   exit 0
 }
   if ([string]::IsNullOrWhiteSpace($BaselinePath)) { throw 'Verify requer -Input.' }
-  $baseline = @(Get-Content -LiteralPath $BaselinePath -Raw | ConvertFrom-Json)
+  $parsedBaseline = Get-Content -LiteralPath $BaselinePath -Raw | ConvertFrom-Json
+  $baseline = @()
+  foreach ($entry in $parsedBaseline) { if ($entry -is [Array]) { $baseline += @($entry) } else { $baseline += $entry } }
 $changes = New-Object System.Collections.ArrayList
 $known = @{}
-foreach ($record in $baseline) {
-  $path = [string]$record.path
+for ($i = 0; $i -lt $baseline.Count; $i++) {
+  $record = $baseline[$i]
+  if ($null -eq $record -or [string]::IsNullOrWhiteSpace([string]$record.path)) { throw "ACTIVE_PATH_INVALID: baseline[$i].path is null or empty." }
+    $path = [string]$record.path
   $known[$path] = $true
-  $current = Get-ActivePathRecord $path
+  $current = Get-ActivePathRecord -InputPath $path
   if ([bool]$record.missing) {
     if (-not [bool]$current.missing) { [void]$changes.Add($path + ' (novo)') }
   } elseif ([bool]$current.missing) { [void]$changes.Add($path + ' (ausente)') }

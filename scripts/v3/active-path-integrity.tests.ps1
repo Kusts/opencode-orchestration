@@ -36,5 +36,19 @@ try {
   $out = & powershell -NoProfile -File $tool -Mode Capture -Output (Join-Path $protectedRoot 'output.json') -Paths $fixture -ProtectedRootsOverride $protectedRoot 2>&1
   $ErrorActionPreference = $savedPreference
   if (($LASTEXITCODE -eq 0) -or (($out -join "`n") -notmatch 'ACTIVE_PATH_OUTPUT_IN_PROFILE')) { throw 'protected output was not rejected' }
-  Write-Host 'active-path-integrity: PASS (6 checks)'
+  $tempOutput = Join-Path $base 'temp-output.json'
+  & powershell -NoProfile -File $tool -Mode Capture -Output $tempOutput -Paths @($fixture) -ProtectedRootsOverride $protectedRoot
+  if ($LASTEXITCODE -ne 0) { throw 'TEMP output was not permitted' }
+  $profile = [Environment]::GetFolderPath('UserProfile')
+  if ([string]::IsNullOrWhiteSpace($profile)) { throw 'user profile unavailable for config-path test' }
+  $configOutput = Join-Path $profile '.config\opencode\f2-output.json'
+  $ErrorActionPreference = 'Continue'
+  $out = & powershell -NoProfile -File $tool -Mode Capture -Output $configOutput -Paths @($fixture) 2>&1
+  $ErrorActionPreference = $savedPreference
+  if (($LASTEXITCODE -eq 0) -or (($out -join "`n") -notmatch 'ACTIVE_PATH_OUTPUT_IN_PROFILE')) { throw 'active config output was not rejected with compatibility token' }
+  $ErrorActionPreference = 'Continue'
+  $out = & powershell -NoProfile -File $tool -Mode Capture -Output (Join-Path $base 'invalid.json') -Paths ' ' -ProtectedRootsOverride $protectedRoot 2>&1
+  $ErrorActionPreference = $savedPreference
+  if (($LASTEXITCODE -eq 0) -or (($out -join "`n") -notmatch 'ACTIVE_PATH_INVALID')) { throw 'empty input path was not rejected honestly' }
+  Write-Host 'active-path-integrity: PASS (9 checks)'
 } finally { Remove-Item -LiteralPath $base -Recurse -Force }
