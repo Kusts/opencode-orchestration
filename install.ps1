@@ -51,6 +51,7 @@ param(
   [ValidateSet('Auto', 'V1', 'V2', 'Both')]
   [string]$Runtime = 'Auto',
   [string]$ProfileRoot = '',
+  [switch]$AllowUserProfileTarget,
   [string]$BinaryV1 = '',
   [string]$BinaryV2 = '',
   [switch]$ProvisionRuntime,
@@ -180,6 +181,9 @@ $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $PSScriptRoot }
 if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE }
+$TargetGuardLib = Join-Path $PSScriptRoot 'scripts\runtime\lib\OrchestrationTargetGuard.ps1'
+. $TargetGuardLib
+Assert-OrchestrationMutatingTargetAllowed -TargetPath $TargetHome -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('TargetHome') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['TargetHome'])) -OptIn:$AllowUserProfileTarget
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 
 $PackageVersion = '1.1.0'
@@ -1246,6 +1250,7 @@ if ($runtimeMode -eq 'Both') {
   if ([string]::IsNullOrWhiteSpace($BothProfileRoot)) {
     $BothProfileRoot = Join-Path $env:USERPROFILE '.opencode-orchestration\profiles'
   }
+  Assert-OrchestrationMutatingTargetAllowed -TargetPath $BothProfileRoot -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('ProfileRoot') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['ProfileRoot'])) -OptIn:$AllowUserProfileTarget
   . (Join-Path $RepoRoot 'scripts\runtime\New-OrchestrationProfile.ps1')
   if ($WhatIfPreference) {
     Write-Host '=== INSTALL PLAN Both (WhatIf, nenhuma escrita) ===' -ForegroundColor Cyan
