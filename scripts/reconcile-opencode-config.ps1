@@ -39,16 +39,35 @@ if ([string]::IsNullOrWhiteSpace($HomeDir)) { $HomeDir = $UserProfileRoot }
 if ([string]::IsNullOrWhiteSpace($RepoDir)) { $RepoDir = $RepoRoot }
 
 function Get-ReconcileModels {
-    param([Parameter(Mandatory)][string]$Path)
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw ("Arquivo de modelos ausente: " + $Path) }
-    $raw = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
-    $lines = $raw -split "`n" | Where-Object { $_ -notmatch '^\s*//' }
-    $parsed = ($lines -join "`n") | ConvertFrom-Json
-    if ([string]::IsNullOrWhiteSpace($parsed.planner) -or [string]::IsNullOrWhiteSpace($parsed.cheap) -or [string]::IsNullOrWhiteSpace($parsed.strong)) { throw 'Arquivo de modelos precisa definir planner, cheap e strong.' }
-    if ([string]::IsNullOrWhiteSpace($parsed.free)) {
-      $parsed | Add-Member -NotePropertyName free -NotePropertyValue 'opencode-go/hy4-flash-free' -Force
+    param([string]$Path = '')
+    $policyPath = Join-Path $RepoRoot 'source\registry\model-routing-policy.json'
+    if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) { throw ("Policy de modelos ausente: " + $policyPath) }
+    $policy = [IO.File]::ReadAllText($policyPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    if ($policy.schema_version -cne 'model-routing-policy/v1') { throw 'Policy de modelos invalida.' }
+    $policyModels = @{}
+    foreach ($tier in @('T1','T2','T3','T4')) {
+      $id = [string]$policy.tiers.$tier.primary
+      $model = $policy.models.$id
+      if ([string]::IsNullOrWhiteSpace($id) -or $null -eq $model -or [string]::IsNullOrWhiteSpace([string]$model.model_id)) { throw ("Primario invalido na policy: " + $tier) }
+      $policyModels[$tier] = [string]$model.model_id
+    }
+    if ([string]::IsNullOrWhiteSpace($Path)) { $parsed = [PSCustomObject]@{} }
+    else {
+      if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw ("Arquivo de modelos ausente: " + $Path) }
+      $raw = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+      $lines = $raw -split "`n" | Where-Object { $_ -notmatch '^\s*//' }
+      $parsed = ($lines -join "`n") | ConvertFrom-Json
+    }
+    foreach ($pair in @(@('planner','T1'),@('cheap','T2'),@('strong','T3'),@('free','T1'),@('frontier','T4'))) {
+      if (-not (Has-ReconcileProperty $parsed $pair[0]) -or [string]::IsNullOrWhiteSpace([string]$parsed.($pair[0]))) {
+        $parsed | Add-Member -NotePropertyName $pair[0] -NotePropertyValue $policyModels[$pair[1]] -Force
+      }
     }
     return $parsed
+}
+
+function Has-ReconcileProperty($Object, [string]$Name) {
+    return $null -ne $Object.PSObject.Properties[$Name]
 }
 
 function Resolve-ReconcileTokens {
@@ -58,13 +77,12 @@ function Resolve-ReconcileTokens {
         $r = $r.Replace('{{MODEL_PLANNER}}', $Models.planner)
         $r = $r.Replace('{{MODEL_CHEAP}}', $Models.cheap)
         $r = $r.Replace('{{MODEL_STRONG}}', $Models.strong)
-        $freeModel = 'opencode-go/hy4-flash-free'
+        $freeModel = [string]$Models.free
         if (-not [string]::IsNullOrWhiteSpace($Models.free)) { $freeModel = [string]$Models.free }
         $r = $r.Replace('{{MODEL_FREE}}', $freeModel)
     }
-    else {
-        $r = $r.Replace('{{MODEL_FREE}}', 'opencode-go/hy4-flash-free')
-    }
+    else { throw 'Modelos indisponiveis para resolver tokens MODEL_*.' }
+    $r = $r.Replace('{{MODEL_FRONTIER}}', [string]$Models.frontier)
     $homeSlash = $HomeValue -replace '\\', '/'
     $r = $r.Replace('{{HOME}}', $homeSlash)
     $r = $r.Replace('{{REPO_DIR}}', ($RepoValue -replace '\\', '/'))
@@ -153,8 +171,7 @@ $bodyStart = 0
 while (($bodyStart -lt $bodyLines.Count) -and (($headerLines -contains $bodyLines[$bodyStart]) -or ([string]::IsNullOrWhiteSpace($bodyLines[$bodyStart])))) { $bodyStart++ }
 $content = (($bodyLines | Select-Object -Skip $bodyStart) -join "`n").TrimEnd() + "`n"
 
-$reconcileModels = $null
-if (-not [string]::IsNullOrWhiteSpace($ModelsPath)) { $reconcileModels = Get-ReconcileModels -Path $ModelsPath }
+$reconcileModels = Get-ReconcileModels -Path $ModelsPath
 $content = Resolve-ReconcileTokens -Text $content -Models $reconcileModels -HomeValue $HomeDir -RepoValue $RepoDir
 $pendingModelTokens = ($content -match '\{\{MODEL_')
 $pendingPathTokens = (($content -match '\{\{HOME\}\}') -or ($content -match '\{\{REPO_DIR\}\}'))
@@ -219,7 +236,7 @@ $shortCurrent = '<none>'
 if ($currentHash) { $shortCurrent = $currentHash.Substring(0, 12) }
 Write-Host (("[{0}] generated/" + $sourceRel + " -> {1} (current {2}; desired {3}; owner {4}; action {5})") -f $status, $targetPath, $shortCurrent, $desiredFinalHash.Substring(0, 12), $owner, $action) -ForegroundColor $(if ($status -eq 'SAME') { 'Green' } else { 'Yellow' })
 if ($pendingModelTokens -or $pendingPathTokens) {
-    Write-Host 'Plano com tokens pendentes: informe ModelsPath para resolver modelos antes do apply.' -ForegroundColor Yellow
+    Write-Host 'Plano com tokens MODEL_* nao resolvidos; revise os valores de modelo antes do apply.' -ForegroundColor Yellow
 }
 
 if (-not $Apply) {
@@ -227,7 +244,7 @@ if (-not $Apply) {
     exit 0
 }
 if ($pendingModelTokens -and [string]::IsNullOrWhiteSpace($ModelsPath)) {
-    Write-Host 'Apply abortado: modelos nao resolvidos e ModelsPath nao informado. Nada foi escrito.' -ForegroundColor Red
+    Write-Host 'Apply abortado: tokens MODEL_* nao resolvidos. Nada foi escrito.' -ForegroundColor Red
     exit 2
 }
 if ($pendingModelTokens -or $pendingPathTokens) {

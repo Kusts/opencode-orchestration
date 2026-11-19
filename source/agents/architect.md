@@ -30,9 +30,9 @@ recomendação clara. A decisão final é do Planner.
 
 Retorne STATUS, FINDINGS, EVIDENCE, RISKS, alternativas breves e RECOMMENDATION.
 
-Equivalência Codex: `architect.toml` (`gpt-6.1-sol/high`, `read-only`).
-Base mantida em Sol (gpt-6.1-sol)/OpenAI. Escalonamento: Sol/xhigh → Sol/max;
-Astra só p/ decisão excepcional, crítica ou difícil de reverter.
+Equivalência Codex e política de modelo: consulte
+`source/registry/model-routing-policy.json`; o frontmatter deste agente é
+renderizado a partir dos tokens de modelo definidos pelo pacote.
 
 ## Shell
 O shell é irrestrito (`bash: "*": allow`). Respeite o escopo delegado e as instruções do Planner; `edit` permanece conforme o papel e `task: deny` impede criar subagentes. Permissão de shell não autoriza efeitos externos.

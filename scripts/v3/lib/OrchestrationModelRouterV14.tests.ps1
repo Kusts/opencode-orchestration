@@ -195,14 +195,16 @@ $selForgedT2Crit = [pscustomobject]@{ Agent='reviewer'; Tier='T2'; CatalogModel=
 $fForgedT2Crit = Resolve-OrchestrationModelFallback -RequestedSelection $selForgedT2Crit -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-V14 ($fForgedT2Crit.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN' -and $null -eq $fForgedT2Crit.FallbackModel -and $null -eq $fForgedT2Crit.CandidateModel -and -not [bool]$fForgedT2Crit.IsAuthorized) 'forged-reviewer-T2-critical-rejected-no-candidate'
 Assert-V14 (([bool]$pol.models.deepseek_go.data_policy.sensitive_data_allowed -eq $false) -and ([string]$pol.models.deepseek_go.data_policy.zdr_note -match 'non-sensitive') -and ([string]$pol.models.deepseek_go.data_policy.zdr_note -match 'requires ZDR')) 'deepseek-go-sensitive-data-not-allowed-zdr-unconfirmed'
-# Defensive catalog (missing/invalid policy) still audits the ordered T2
-# candidates without enabling dispatch: DeepSeek, Muse, Haiku, Luna.
+# Missing policy fails closed: neither fallback nor catalog can authorize a
+# dispatch or return a model.
 $badPolPathV14 = Join-Path ([IO.Path]::GetTempPath()) ('v14-missing-policy-' + [guid]::NewGuid().ToString('N') + '.json')
 $selT2BadPol = [pscustomobject]@{ Agent='coder'; Tier='T2'; CatalogModel='opencode-go/deepseek-v4.1-flash'; Risk='medium'; Provider='opencode-go'; RequestedModel='opencode-go/deepseek-v4.1-flash' }
-$fBadPol = Resolve-OrchestrationModelFallback -RequestedSelection $selT2BadPol -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -PolicyPath $badPolPathV14
-Assert-V14 ($fBadPol.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fBadPol.FallbackModel -eq $null -and -not [bool]$fBadPol.IsAuthorized -and $fBadPol.CandidateModel -ceq 'opencode-go/muse-spark-1.3-contributor') 'defensive-catalog-T2-muse-second-audit-only'
-$catBadPol = Resolve-CatalogModel -Tier 'T2' -PolicyPath $badPolPathV14 -IgnoreUserConfig $true
-Assert-V14 ((@($catBadPol.FallbackCandidates)[0] -ceq 'openai/gpt-6-luna') -and (@($catBadPol.FallbackCandidates)[1] -ceq 'opencode-go/deepseek-v4.1-flash') -and (@($catBadPol.FallbackCandidates)[2] -ceq 'opencode-go/muse-spark-1.3-contributor') -and (@($catBadPol.FallbackCandidates)[3] -ceq 'claude-agent/haiku')) 'defensive-catalog-T2-order-luna-deepseek-muse-haiku'
+$fBadPol = $null; $fBadPolError = ''
+try { $fBadPol = Resolve-OrchestrationModelFallback -RequestedSelection $selT2BadPol -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -PolicyPath $badPolPathV14 } catch { $fBadPolError = $_.Exception.Message }
+Assert-V14 (($null -eq $fBadPol -or (-not [bool]$fBadPol.IsAuthorized -and [string]::IsNullOrWhiteSpace([string]$fBadPol.FallbackModel) -and [string]$fBadPol.Status -match 'POLICY_MISSING')) -or $fBadPolError -match 'POLICY_MISSING') 'missing-policy-fallback-fails-closed'
+$catBadPol = $null; $catBadPolError = ''
+try { $catBadPol = Resolve-CatalogModel -Tier 'T2' -PolicyPath $badPolPathV14 -IgnoreUserConfig $true } catch { $catBadPolError = $_.Exception.Message }
+Assert-V14 (($null -eq $catBadPol -and $catBadPolError -match 'POLICY_MISSING') -or ($null -ne $catBadPol -and [string]::IsNullOrWhiteSpace([string]$catBadPol.Model) -and [string]$catBadPol.Status -match 'POLICY_MISSING')) 'missing-policy-catalog-fails-closed'
 Assert-V14 ((@($pol.models.deepseek_go.eligible_roles) -contains 'build') -and (@($pol.models.deepseek_go.eligible_roles) -notcontains 'engineering-advisor')) 'deepseek-eligible-build-not-advisor'
 Assert-V14 ((@($pol.models.muse.eligible_roles) -notcontains 'build') -and (@($pol.models.muse.eligible_roles) -notcontains 'engineering-advisor')) 'muse-not-eligible-build-advisor'
 Assert-V14 ((@($pol.models.deepseek_go.eligible_roles) -contains 'coder') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'reviewer') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'debugger') -and (@($pol.models.deepseek_go.eligible_roles) -contains 'skeptic')) 'deepseek-eligible-coder-reviewer-debugger-skeptic'

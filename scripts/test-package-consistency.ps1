@@ -80,7 +80,7 @@ catch { Report-Fail '1 refs install/uninstall existem' $_.Exception.Message }
 
 # ---- 2. tokens usados == conjunto conhecido ---------------------------------
 try {
-  $knownTokens = @('HOME', 'MODEL_CHEAP', 'MODEL_FREE', 'MODEL_PLANNER', 'MODEL_STRONG', 'REPO_DIR')
+  $knownTokens = @('HOME', 'MODEL_CHEAP', 'MODEL_FREE', 'MODEL_FRONTIER', 'MODEL_PLANNER', 'MODEL_STRONG', 'REPO_DIR')
   $renderFiles = New-Object System.Collections.ArrayList
   [void]$renderFiles.Add((Join-Path $RepoRoot 'templates\opencode.v1.json.tmpl'))
   [void]$renderFiles.Add((Join-Path $RepoRoot 'templates\opencode.v2.json.tmpl'))
@@ -406,7 +406,7 @@ try {
       if ([string]$v2.agents.build.model -cne 'x/planner') { [void]$errs12.Add('V2 agents.build.model != x/planner (Haiku do Planner)') }
     }
     if (($null -ne $v2.agents) -and ($null -ne $v2.agents.title)) {
-      if ([string]$v2.agents.title.model -cne 'openai/gpt-6-luna') { [void]$errs12.Add('V2 agents.title.model != openai/gpt-6-luna (title nao herda Haiku)') }
+      if ([string]$v2.agents.title.model -cne 'x/cheap') { [void]$errs12.Add('V2 agents.title.model != x/cheap (token derivado MODEL_CHEAP)') }
       if ($null -ne ($v2.agents.title | Get-Member -Name 'permissions' -ErrorAction SilentlyContinue)) { [void]$errs12.Add('V2 bloco title nao deve conter permissions') }
     }
     if ($v2Raw12 -match '"task"\s*:') { [void]$errs12.Add('V2 contem chave legada task') }

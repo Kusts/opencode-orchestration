@@ -47,7 +47,7 @@ histórica, sem efeito).
   - **T1 (Gratuito / Ultraleve):** Triagem rápida, extração de texto, busca semântica leve.
   - **T2 (Econômico / Flash — `{{MODEL_CHEAP}}`):** Coder padrão, análises rotineiras, reviews de baixo risco.
   - **T3 (Intermediário / Capaz):** Refatorações multi-arquivo, debugging de média complexidade, revisões de arquitetura.
-  - **T4 (Frontier / Raciocínio Profundo — `{{MODEL_STRONG}}`):** Impasses técnicos comprovados, decisões críticas de segurança, bugs persistentes pós-falha.
+  - **T4 (Frontier / Raciocínio Profundo — `{{MODEL_FRONTIER}}`):** Impasses técnicos comprovados, decisões críticas de segurança, bugs persistentes pós-falha.
 - Free worker pool — `{{MODEL_FREE}}`: `explorer`, `researcher`,
   `tester`, `docs-manager` (T1 inicial; escala para T2 apenas quando necessário).
 - Cheap worker pool — `{{MODEL_CHEAP}}`: `coder`, `frontend-engineer`,
@@ -55,7 +55,7 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Planner `build` mantém `opencode-go/hy4-flash-free` como primário T1; Luna (`openai/gpt-6-luna`) é candidato de disponibilidade same-tier somente com prova independente de não-início. Sem cadeia T1 genérica nem promoção para T2/T3/T4.
+- Modelos, candidatos por tier, baseline e escalonamentos são definidos exclusivamente em `source/registry/model-routing-policy.json`; consulte esse registry, sem tratar candidatos como configuração operacional fixa.
   A recuperação automática completa continua BLOCKED: o caminho nativo seguro sem duplicação não está comprovado. Em 2026-11-16, `opencode run --session <id> --model <m>` sem mensagem falhou com “You must provide a message”; não repetir o turno nem criar segundo Planner/supervisor.
   O modelo global e `agents.build.model` usam `opencode-go/hy4-flash-free`; outros agentes não herdam Luna.
   O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
@@ -68,11 +68,10 @@ histórica, sem efeito).
   retry por si só). O protocolo Planner-mediado comprovado está descrito em
   **Fallback nativo mediado pelo Planner** abaixo:
   - **T1:** `opencode-go/hy4-flash-free` → `opencode/mimo-v2.6-flash-free` (mesmo tier apenas).
-  - **T2 geral:** candidatos em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` → `claude-agent/haiku` → `openai/gpt-6-luna`. Capacidade Claude local e prova observada de no-start são condições; caller `NoExecutionStarted=true` não prova não-início.
+  - **T2 geral:** candidatos e ordem constam em `source/registry/model-routing-policy.json`. Capacidade do provider e prova observada de no-start são condições; caller `NoExecutionStarted=true` não prova não-início.
     `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. A decisão datada de 2026-11-04 que selecionava DeepSeek Go como primário T2 é histórica/superada pela policy vigente; ZDR segue `expired-unconfirmed` (não envie dados sensíveis cuja proteção exija ZDR).
-  - **T3:** `claude-agent/sonnet` → `openai/gpt-6.1-terra`; candidatos de recuperação T2 somente para papéis admissíveis a T2, em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Engineering-advisor é T3-only.
-  - **T4:** `claude-agent/opus` → `openai/gpt-6.1-sol` é candidato de política, sem transição real comprovada; T2 degradado só para papéis admissíveis. `openai/gpt-6-astra` continua excepcional e proof-gated por prova Kernel-owned; `claude-agent/fable` permanece HOLD.
-  - **Cadeia canônica de escalonamento (decisão 2026-11-10, issue #208):** o caminho
+  - **T3/T4:** candidatos, ordem e condições de elegibilidade constam em `source/registry/model-routing-policy.json`; T2 degradado só para papéis admissíveis.
+  - **Cadeia canônica de escalonamento (decisão 2026-11-10, issue #208; resumo histórico, fonte operacional é o registry):** o caminho
     autorizado para prova é T3 `claude-agent/sonnet` → T4 `claude-agent/opus` →
     `openai/gpt-6-astra` (excepcional, somente após prova T4 válida). `openai/gpt-6.1-sol`
     é **candidato de mesmo tier T4**, não um degrau entre T3 e Astra; `claude-agent/fable`
@@ -128,7 +127,7 @@ histórica, sem efeito).
   `eligible_roles` ⇒ sem Astra (fail closed sem bypass); Fable permanece HOLD sem prova específica do modelo. Recibos/bools arbitrários (`T3FailureVerified`,
   `T3FailureReceipt`, `VerifiedFailureReceipt`), `FailureCount` e risco nunca
    autorizam T4/Astra/Fable. Opus→Sol continua candidato de política e não tem transição real provada. Rota Planner-mediada: `task-kernel model-select`
-  (somente leitura; retorna `tier` + `model` no formato `providerID/modelID`
+   (somente leitura; retorna `tier` + `model` no formato `providerID/modelID`
   — `claude-agent/opus` em T3 válida, `openai/gpt-6-astra` em T4 válida posterior — + `policy_hash` + refs
   da prova) → Planner informa `model` verbatim na propriedade `model` da
   ferramenta nativa `subagent` → refs `session:<child>` + `message:<assistant>`
