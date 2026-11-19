@@ -339,11 +339,13 @@ Assert-CA ((Resolve-ClaudeAgentUsageCost -ReportedCost '1.25') -eq '1.25') 'nonz
 #     availability candidate only; resolver holds and never dispatches.
 $sPlannerSel = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-CA ($sPlannerSel.CatalogModel -eq 'opencode-go/hy4-flash-free' -and $sPlannerSel.Tier -eq 'T1') 'planner-repro-selects-hy4-T1'
-$plannerAvailabilityReasons = @('RATE_LIMIT','MODEL_UNAVAILABLE','MODEL_ERROR','SERVICE_UNAVAILABLE','QUOTA_EXCEEDED','OFFLINE','PROVIDER_ERROR','PROVIDER_UNAVAILABLE','QUOTA')
+$plannerAvailabilityReasons = @('RATE_LIMIT','MODEL_UNAVAILABLE','MODEL_ERROR','SERVICE_UNAVAILABLE','QUOTA_EXCEEDED','OFFLINE','PROVIDER_UNAVAILABLE','QUOTA')
 foreach ($availabilityReason in $plannerAvailabilityReasons) {
     $fPlannerAvailability = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason $availabilityReason -NoExecutionStarted $true -IgnoreUserConfig $true
     Assert-CA ($fPlannerAvailability.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fPlannerAvailability.CandidateModel -ceq 'openai/gpt-6-luna' -and $fPlannerAvailability.FallbackTier -ceq 'T1' -and -not [bool]$fPlannerAvailability.IsAuthorized) ("planner-availability-hold-luna:" + $availabilityReason)
 }
+$fPlannerProviderError = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'PROVIDER_ERROR' -NoExecutionStarted $true -IgnoreUserConfig $true
+Assert-CA ($fPlannerProviderError.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and [string]::IsNullOrEmpty([string]$fPlannerProviderError.CandidateModel) -and -not [bool]$fPlannerProviderError.IsAuthorized) 'planner-provider-error-not-availability-trigger'
 $fPlannerProviderBlocked = Resolve-OrchestrationModelFallback -RequestedSelection $sPlannerSel -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'SERVICE_UNAVAILABLE' -NoExecutionStarted $true -IgnoreUserConfig $true -AllowedProviders @('opencode-go')
 $plannerProviderExclusion = @($fPlannerProviderBlocked.PreventivelyExcluded | Where-Object { $_.Model -ceq 'openai/gpt-6-luna' -and $_.Reason -ceq 'PROVIDER_NOT_ALLOWED' })
 Assert-CA ($fPlannerProviderBlocked.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and [string]::IsNullOrEmpty([string]$fPlannerProviderBlocked.CandidateModel) -and $plannerProviderExclusion.Count -eq 1) 'planner-Luna-blocked-by-AllowedProviders-with-exclusion'
