@@ -436,11 +436,12 @@ function Remove-OrchestrationBlock([string[]]$Lines) {
   return ($kept -join "`n")
 }
 
-function Resolve-Tokens([string]$Text, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free, [string]$HomeDir, [string]$RepoDir) {
+function Resolve-Tokens([string]$Text, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free, [string]$Frontier, [string]$HomeDir, [string]$RepoDir) {
   $r = $Text.Replace('{{MODEL_PLANNER}}', $Planner)
   $r = $r.Replace('{{MODEL_CHEAP}}', $Cheap)
   $r = $r.Replace('{{MODEL_STRONG}}', $Strong)
   $r = $r.Replace('{{MODEL_FREE}}', $Free)
+  $r = $r.Replace('{{MODEL_FRONTIER}}', $Frontier)
   $homeSlash = $HomeDir -replace '\\', '/'
   $r = $r.Replace('{{HOME}}', $homeSlash)
   $r = $r.Replace('{{REPO_DIR}}', ($RepoDir -replace '\\', '/'))
@@ -855,38 +856,36 @@ function Validate-Models([string]$ModelsPath, [string]$Root = '') {
   catch {
     return @{ Ok = $false; Errors = @('models.jsonc nao e JSONC parseavel: ' + $_.Exception.Message); Values = $null }
   }
-  foreach ($k in @('planner', 'cheap', 'strong')) {
+  if ([string]::IsNullOrWhiteSpace($Root)) { throw 'Root obrigatorio para resolver os modelos da policy.' }
+  $defaults = Get-PolicyModelDefaults $Root
+  foreach ($k in @('planner', 'cheap', 'strong', 'free', 'frontier')) {
     if (-not (Has-Member $parsed $k) -or [string]::IsNullOrWhiteSpace([string]$parsed.$k)) {
-      $errs += ('models.jsonc: chave "' + $k + '" ausente ou vazia.')
+      $parsed | Add-Member -NotePropertyName $k -NotePropertyValue $defaults[$k] -Force
     }
-  }
-  if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Values = $null } }
-  $defaultFree = 'opencode-go/hy4-flash-free'
-  if (-not [string]::IsNullOrWhiteSpace($Root)) {
-    $defaultFree = Get-DefaultFreeModel $Root
-  }
-  if (-not (Has-Member $parsed 'free') -or [string]::IsNullOrWhiteSpace([string]$parsed.free)) {
-    $parsed | Add-Member -NotePropertyName free -NotePropertyValue $defaultFree -Force
   }
   return @{ Ok = $true; Errors = @(); Values = $parsed }
 }
 
 function Get-DefaultFreeModel([string]$Root) {
+  return (Get-PolicyModelDefaults $Root).free
+}
+
+function Get-PolicyModelDefaults([string]$Root) {
   try {
     $policyPath = Join-Path $Root 'source\registry\model-routing-policy.json'
-    if (Test-Path -LiteralPath $policyPath -PathType Leaf) {
-      $p = (Read-Utf8 $policyPath) | ConvertFrom-Json
-      $primaryId = [string]$p.tiers.T1.primary
-      if (-not [string]::IsNullOrWhiteSpace($primaryId)) {
-        $m = $p.models.$primaryId
-        if ($null -ne $m -and -not [string]::IsNullOrWhiteSpace([string]$m.model_id)) {
-          return [string]$m.model_id
-        }
-      }
+    if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) { throw 'Policy ausente.' }
+    $p = (Read-Utf8 $policyPath) | ConvertFrom-Json
+    if ($p.schema_version -cne 'model-routing-policy/v1') { throw 'Policy invalida.' }
+    $result = @{}
+    foreach ($entry in @(@('planner','T1'),@('cheap','T2'),@('strong','T3'),@('free','T1'),@('frontier','T4'))) {
+      $id = [string]$p.tiers.($entry[1]).primary
+      $model = $p.models.$id
+      if ([string]::IsNullOrWhiteSpace($id) -or $null -eq $model -or [string]::IsNullOrWhiteSpace([string]$model.model_id)) { throw ("Primario invalido: " + $entry[1]) }
+      $result[$entry[0]] = [string]$model.model_id
     }
+    return $result
   }
-  catch { }
-  return 'openai/gpt-6-luna'
+  catch { throw ("Nao foi possivel derivar modelos da policy: " + $_.Exception.Message) }
 }
 
 function Get-RequiredTemplatesForRuntime([string]$RuntimeId) {
@@ -943,7 +942,7 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('template ausente'); Desired = $null }
   }
-  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free $env:USERPROFILE $Root
+  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free (Get-PolicyModelDefaults $Root).frontier $env:USERPROFILE $Root
   try {
     $desired = $resolved | ConvertFrom-Json
   }
@@ -982,7 +981,7 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('template V2 ausente'); Desired = $null }
   }
-  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free $env:USERPROFILE $Root
+  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free (Get-PolicyModelDefaults $Root).frontier $env:USERPROFILE $Root
   try {
     $desired = $resolved | ConvertFrom-Json
   }
@@ -1484,6 +1483,7 @@ $modelPlanner = $modelsRes.Values.planner
 $modelCheap = $modelsRes.Values.cheap
 $modelStrong = $modelsRes.Values.strong
 $modelFree = $modelsRes.Values.free
+$modelFrontier = (Get-PolicyModelDefaults $RepoRoot).frontier
 
 # Runtime ja resolvido no precheck (V31-R3 F3); aqui so deriva o fluxo.
 $IsV2 = ([string]$runtimeDecision.RuntimeId -eq 'opencode-v2')
@@ -1558,7 +1558,7 @@ $globalBody = Read-Utf8 (Join-Path $RepoRoot 'source\global\AGENTS.md')
 $adapterRel = 'source\adapters\opencode.md'
 if ($IsV2) { $adapterRel = 'source\adapters\opencode-v2.md' }
 $adapterBody = Read-Utf8 (Join-Path $RepoRoot $adapterRel)
-$agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.TrimEnd()).TrimEnd() + "`n") $modelPlanner $modelCheap $modelStrong $modelFree $TargetHome $RepoRoot
+$agentsContent = Resolve-Tokens (($globalBody.TrimEnd() + "`n`n" + $adapterBody.TrimEnd()).TrimEnd() + "`n") $modelPlanner $modelCheap $modelStrong $modelFree $modelFrontier $TargetHome $RepoRoot
 
 $agentsMdRes = Merge-ManagedAgentsMdBlock $existingAgentsMd $agentsContent $header
 $retiredBlock = $false

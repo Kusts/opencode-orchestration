@@ -66,9 +66,9 @@ histórica, sem efeito).
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
-  `engineering-advisor` não é cheap: mínimo T3 (Sonnet primário, Terra candidato), T2 proibido.
+  `engineering-advisor` não é cheap: tier mínimo e elegibilidade são definidos por `source/registry/model-routing-policy.json`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Fallback do cheap pool — HOLD no V1: a matriz rota/modelo canônica é a
+- Fallback do cheap pool — HOLD no V1: a matriz de rota/modelo canônica é a
   referência de nível de política `source/registry/model-routing-policy.json`
   (detalhes em `docs/guides/MODEL-ROUTER-v1.4-OPERATIONS.md`). O OpenCode V1
   está congelado: retries automáticos, trocas de provider e aliases

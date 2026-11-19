@@ -64,6 +64,17 @@ function Get-OrchestrationCanonicalModelChain {
         $fableGatedRaw = Get-OrchestrationModelChainProperty -Node $fable -Name 'gated'
         if ($null -ne $fableGatedRaw) { $fableGated = [bool]$fableGatedRaw }
     }
+    $astraProofGated = [bool](Get-OrchestrationModelChainProperty -Node (Get-OrchestrationModelChainProperty -Node $policy -Name 'runtime_verification') -Name 'require_failure_receipt_for_astra')
+    $exceptionalModel = Get-OrchestrationModelChainProperty -Node $models -Name $exceptionalKey
+    $exceptionalBudgetRequired = [bool](Get-OrchestrationModelChainProperty -Node (Get-OrchestrationModelChainProperty -Node $exceptionalModel -Name 'cost_profile') -Name 'exceptional_budget_required')
+    $primaryTierProfiles = @(
+        @(Get-OrchestrationModelChainProperty -Node (Get-OrchestrationModelChainProperty -Node $models -Name $t3Key) -Name 'tier_profiles'),
+        @(Get-OrchestrationModelChainProperty -Node (Get-OrchestrationModelChainProperty -Node $models -Name $t4Key) -Name 'tier_profiles')
+    )
+    $alternativeTierProfiles = @($altKeys | ForEach-Object {
+        $alternative = Get-OrchestrationModelChainProperty -Node $models -Name $_
+        @(Get-OrchestrationModelChainProperty -Node $alternative -Name 'tier_profiles')
+    })
 
     return [pscustomobject]@{
         PolicyVersion      = [string](Get-OrchestrationModelChainProperty -Node $policy -Name 'policy_version')
@@ -75,6 +86,10 @@ function Get-OrchestrationCanonicalModelChain {
         ExceptionalModel   = Get-OrchestrationModelIdForKey -Models $models -Key $exceptionalKey
         T4AlternativeKeys  = $altKeys
         T4AlternativeModels = @($altKeys | ForEach-Object { Get-OrchestrationModelIdForKey -Models $models -Key $_ })
+        T4AlternativeTierProfiles = $alternativeTierProfiles
+        ExceptionalProofGated = $astraProofGated
+        ExceptionalBudgetRequired = $exceptionalBudgetRequired
+        PrimaryTierProfiles = $primaryTierProfiles
         FablePresent       = ($null -ne $fable)
         FableGated         = $fableGated
     }
@@ -107,29 +122,40 @@ function Test-OrchestrationModelChainConsistency {
         return [pscustomobject]@{ ok = $false; errors = @($errors); chain = $null }
     }
 
-    if ($chain.T3Key -cne 'claude_sonnet') {
-        [void]$errors.Add('t3-primary-drift: esperado claude_sonnet, encontrado ' + $chain.T3Key)
+    if ([string]::IsNullOrWhiteSpace([string]$chain.T3Key) -or [string]::IsNullOrWhiteSpace([string]$chain.T3Model) -or
+        [string]::IsNullOrWhiteSpace([string]$chain.T4Key) -or [string]::IsNullOrWhiteSpace([string]$chain.T4Model)) {
+        [void]$errors.Add('tier-primary-missing: T3 e T4 devem declarar modelos primarios')
     }
-    if ($chain.T4Key -cne 'claude_opus') {
-        [void]$errors.Add('t4-primary-drift: esperado claude_opus, encontrado ' + $chain.T4Key)
+    elseif (($chain.T3Key -ceq $chain.T4Key) -or ($chain.T3Model -ceq $chain.T4Model)) {
+        [void]$errors.Add('tier-primary-not-distinct: T3 e T4 devem ser distintos')
     }
-    if ($chain.ExceptionalKey -cne 'astra') {
-        [void]$errors.Add('t4-exceptional-drift: esperado astra, encontrado ' + $chain.ExceptionalKey)
+    if (@($chain.PrimaryTierProfiles[0]) -notcontains 'T3') {
+        [void]$errors.Add('t3-primary-drift: modelo primario nao pertence ao tier T3')
     }
-    if (@($chain.T4AlternativeKeys) -notcontains 'sol') {
-        [void]$errors.Add('t4-sol-candidate-missing: sol deve ser candidato de mesmo tier T4')
+    if (@($chain.PrimaryTierProfiles[1]) -notcontains 'T4') {
+        [void]$errors.Add('t4-primary-drift: modelo primario nao pertence ao tier T4')
     }
-    if ($chain.T3Model -cne 'claude-agent/sonnet') {
-        [void]$errors.Add('t3-model-drift: esperado claude-agent/sonnet, encontrado ' + [string]$chain.T3Model)
+    if ([string]::IsNullOrWhiteSpace([string]$chain.ExceptionalKey) -or [string]::IsNullOrWhiteSpace([string]$chain.ExceptionalModel)) {
+        [void]$errors.Add('t4-exceptional-missing: T4 deve declarar modelo excepcional')
     }
-    if ($chain.T4Model -cne 'claude-agent/opus') {
-        [void]$errors.Add('t4-model-drift: esperado claude-agent/opus, encontrado ' + [string]$chain.T4Model)
+    if (-not [bool]$chain.ExceptionalProofGated) {
+        [void]$errors.Add('exceptional-proof-gate-missing: modelo excepcional deve exigir prova de falha')
     }
-    if ($chain.ExceptionalModel -cne 'openai/gpt-6-astra') {
-        [void]$errors.Add('exceptional-model-drift: esperado openai/gpt-6-astra, encontrado ' + [string]$chain.ExceptionalModel)
+    if (-not [bool]$chain.ExceptionalBudgetRequired) {
+        [void]$errors.Add('t4-exceptional-drift: modelo excepcional nao esta marcado como excepcional pela policy')
     }
-    if (@($chain.T4AlternativeModels) -notcontains 'openai/gpt-6.1-sol') {
-        [void]$errors.Add('sol-model-drift: esperado openai/gpt-6.1-sol em tiers.T4.alternatives')
+    $t4AlternativeIndex = -1
+    for ($i = 0; $i -lt @($chain.T4AlternativeModels).Count; $i++) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$chain.T4AlternativeModels[$i]) -and
+            $chain.T4AlternativeKeys[$i] -cne $chain.T4Key -and
+            $chain.T4AlternativeKeys[$i] -cne $chain.T3Key -and
+            @($chain.T4AlternativeTierProfiles[$i]) -contains 'T4') {
+            $t4AlternativeIndex = $i
+            break
+        }
+    }
+    if ($t4AlternativeIndex -lt 0) {
+        [void]$errors.Add('t4-sol-candidate-missing: tiers.T4 deve declarar candidato alternativo same-tier')
     }
     if (-not [bool]$chain.FablePresent) {
         [void]$errors.Add('fable-missing: claude_fable deve existir e permanecer em HOLD')
@@ -137,6 +163,8 @@ function Test-OrchestrationModelChainConsistency {
     elseif (-not [bool]$chain.FableGated) {
         [void]$errors.Add('fable-gate-missing: claude_fable deve manter gated=true')
     }
+    # claude_fable is the policy's named HOLD model; the ID is needed to test
+    # that this specifically gated model never appears in the primary chain.
     $fableInChain = (@($chain.T4AlternativeKeys) -contains 'claude_fable') -or
                     ($chain.T3Key -ceq 'claude_fable') -or
                     ($chain.T4Key -ceq 'claude_fable') -or
@@ -165,8 +193,10 @@ function Test-OrchestrationModelChainConsistency {
     if (-not $adapter.Contains($canonicalOpusAstra)) {
         [void]$errors.Add('adapter-missing-astra: falta "' + $canonicalOpusAstra + '"')
     }
-    if (-not $adapter.Contains('openai/gpt-6.1-sol')) {
-        [void]$errors.Add('adapter-missing-sol-candidate: falta openai/gpt-6.1-sol como candidato T4')
+    foreach ($alternativeModel in @($chain.T4AlternativeModels)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$alternativeModel) -and -not $adapter.Contains([string]$alternativeModel)) {
+            [void]$errors.Add('adapter-missing-t4-candidate: falta candidato same-tier T4 da policy: ' + [string]$alternativeModel)
+        }
     }
     if (-not $adapter.Contains('<!-- model-chain:canonical')) {
         [void]$errors.Add('adapter-missing-canonical-block: falta o marcador <!-- model-chain:canonical')

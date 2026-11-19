@@ -420,7 +420,7 @@ Assert ($hashAfterSameO -eq $fileHashO) 'p: preview SAME nao altera arquivo'
 $mErrs = $null
 $mToks = $null
 $mAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepoRoot 'install.ps1'), [ref]$mToks, [ref]$mErrs)
-foreach ($mFn in @('Has-Member', 'Resolve-Tokens', 'Count-TokenMarkers', 'Read-Utf8', 'Validate-TemplateV2', 'Get-RequiredTemplatesForRuntime')) {
+foreach ($mFn in @('Has-Member', 'Resolve-Tokens', 'Count-TokenMarkers', 'Read-Utf8', 'Validate-TemplateV2', 'Get-RequiredTemplatesForRuntime', 'Get-PolicyModelDefaults')) {
   $mFound = @($mAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | Where-Object { $_.Name -eq $mFn })
   if ($mFound.Count -eq 0) { throw ('funcao nao encontrada em install.ps1: ' + $mFn) }
   . ([scriptblock]::Create($mFound[0].Extent.Text))
@@ -438,6 +438,8 @@ $tmplReal = [IO.File]::ReadAllText((Join-Path $RepoRoot 'templates\opencode.v2.j
 function New-TamperRoot([string]$Tag, [scriptblock]$Mutate) {
   $tr = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-tmpl-' + $Tag + '-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path (Join-Path $tr 'templates') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $tr 'source\registry') -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'source\registry\model-routing-policy.json') -Destination (Join-Path $tr 'source\registry\model-routing-policy.json') -Force
   [void]$homes.Add($tr)
   $tresolved = $tmplReal.Replace('{{MODEL_PLANNER}}', 'a/b').Replace('{{MODEL_CHEAP}}', 'c/d').Replace('{{MODEL_STRONG}}', 'e/f').Replace('{{MODEL_FREE}}', 'f/g').Replace('{{HOME}}', 'C:/x').Replace('{{REPO_DIR}}', 'C:/y')
   $tobj = $tresolved | ConvertFrom-Json

@@ -44,8 +44,8 @@ os findings em JSON para o Planner registrar com `-FindingsJson`.
 
 A decisão `retry-decision` é advisory: informe sinais de falha/localização com evidência atual; ela não autoriza dispatch, reparo ou mudança de autoridade. A decisão persistida é recomendação, não gate de conclusão.
 
-Equivalência Codex: `reviewer.toml` (`gpt-6.1-sol/high`, `read-only`).
-Base atual mantida em Sol (gpt-6.1-sol) via provider OpenAI. Escalonamento usa
+Equivalência Codex: `reviewer.toml` (`read-only`).
+Política de modelo: consulte `source/registry/model-routing-policy.json`. Escalonamento usa
 OpenAI: Sol/xhigh → Sol/max; Astra só em review crítico excepcional.
 
 ## Shell

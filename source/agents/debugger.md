@@ -36,7 +36,7 @@ Retorne STATUS, FINDINGS, EVIDENCE, RISKS e RECOMMENDATION de modo conciso.
 Pode retornar ESCALATION_RECOMMENDED com motivo/evidência/bloqueio, mas quem
 decide o escalonamento é o Planner.
 
-Equivalência Codex: `debugger.toml` (`gpt-6.1-sol/high`, `read-only`,
+Equivalência Codex: `debugger.toml` (`read-only`,
 conforme papel consultivo e sem edição de aplicação).
-Base mantida em Sol (gpt-6.1-sol)/OpenAI.
+Política de modelo: consulte `source/registry/model-routing-policy.json`.
 Escalonamento: Sol/xhigh → Sol/max; Astra só como último recurso.

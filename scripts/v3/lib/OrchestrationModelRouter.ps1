@@ -142,21 +142,43 @@ $script:AgentModelAdmissibility = @{
     }
 }
 
-# Standard Model Catalog mapping tiers to catalog definitions and default authorization
-$script:DefaultModelCatalog = @{
-    'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/hy4-flash-free';  Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
-    'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'openai/gpt-6-luna'; Provider = 'openai'; Authorized = $true; AlternativeModel = 'opencode-go/deepseek-v4.1-flash'; AdditionalCandidates = @('opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku') }
-    'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'claude-agent/sonnet';                  Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
-    'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'claude-agent/opus';                    Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-sol'; ExceptionalModel = 'openai/gpt-6-astra' }
-}
-
 $script:CachedRoutingPolicy = $null
 
-# Closed claude-agent DISPATCH-ALIAS map (alias model_id -> dispatch alias
-# token). Dispatch identity IS the alias itself: claude-agent/haiku -> haiku,
-# claude-agent/sonnet -> sonnet, claude-agent/opus -> opus,
-# claude-agent/fable -> fable. The OpenCode catalog never publishes an
+function Get-PolicyModelId {
+    param($Policy, [string]$LogicalId)
+    if ($null -eq $Policy -or [string]::IsNullOrWhiteSpace($LogicalId)) { return '' }
+    $property = $Policy.models.PSObject.Properties[$LogicalId]
+    if ($null -eq $property -or $null -eq $property.Value) { return '' }
+    return [string]$property.Value.model_id
+}
+
+function Get-PolicyTierModelIds {
+    param($Policy, [string]$Tier)
+    $result = [System.Collections.Generic.List[string]]::new()
+    if ($null -eq $Policy) { return @() }
+    $tierPolicy = $Policy.tiers.PSObject.Properties[$Tier]
+    if ($null -eq $tierPolicy -or $null -eq $tierPolicy.Value) { return @() }
+    $node = $tierPolicy.Value
+    foreach ($logicalId in @($node.primary) + @($node.alternatives) + @($node.exceptional) + @($node.fallback)) {
+        $id = Get-PolicyModelId -Policy $Policy -LogicalId ([string]$logicalId)
+        $entryProperty = $Policy.models.PSObject.Properties[[string]$logicalId]
+        $entryTiers = if ($entryProperty) { @($entryProperty.Value.tier_profiles) } else { @() }
+        if ($entryTiers -contains $Tier -and -not [string]::IsNullOrWhiteSpace($id) -and -not $result.Contains($id)) { $result.Add($id) }
+    }
+    if ($Tier -eq 'T4' -and $Policy.models.astra -and $Policy.models.astra.fallback_candidates) {
+        foreach ($logicalId in @($Policy.models.astra.fallback_candidates)) {
+            $id = Get-PolicyModelId -Policy $Policy -LogicalId ([string]$logicalId)
+            $entryProperty = $Policy.models.PSObject.Properties[[string]$logicalId]
+            $entryTiers = if ($entryProperty) { @($entryProperty.Value.tier_profiles) } else { @() }
+            if ($entryTiers -contains $Tier -and -not [string]::IsNullOrWhiteSpace($id) -and -not $result.Contains($id)) { $result.Add($id) }
+        }
+    }
+    return @($result)
+}
+
+# claude-agent DISPATCH-ALIAS identity (alias model_id -> dispatch alias
+# token) is read from policy. Dispatch identity IS the alias itself.
+# The OpenCode catalog never publishes an
 # alias->concrete mapping, successful session events expose only the alias, and
 # the concrete IDs merely LISTED in the local `opencode models` CLI inventory
 # are recorded in the policy as catalog_inventory_id (listing / provenance
@@ -164,13 +186,6 @@ $script:CachedRoutingPolicy = $null
 # runtime-unverified until a successful session event proves it: never store a
 # concrete model ID here and never treat one as a mapping (no invented IDs; no
 # resolved_model field anywhere).
-$script:ClaudeAgentDispatchAliasMap = @{
-    'claude-agent/haiku'  = 'haiku'
-    'claude-agent/sonnet' = 'sonnet'
-    'claude-agent/opus'   = 'opus'
-    'claude-agent/fable'  = 'fable'
-}
-
 # Effort variants listed per alias in the current OpenCode model catalog.
 # Recorded as catalog metadata only; dispatch never selects a variant here.
 $script:ClaudeAgentEffortVariants = @('low', 'medium', 'high', 'xhigh', 'max')
@@ -250,11 +265,24 @@ function Resolve-ClaudeAgentAlias {
         [string]$PolicyAlias = '',
 
         [Parameter(Mandatory = $false)]
-        [string]$PolicyModelId = ''
+        [string]$PolicyModelId = '',
+
+        [Parameter(Mandatory = $false)]
+        [string]$PolicyPath = ''
     )
 
     $key = ([string]$AliasModelId).Trim()
-    $expected = if ($script:ClaudeAgentDispatchAliasMap.ContainsKey($key)) { [string]$script:ClaudeAgentDispatchAliasMap[$key] } else { '' }
+    $policyResult = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    $policy = if ($policyResult.Status -eq 'POLICY_LOADED') { $policyResult.Policy } else { $null }
+    $expected = ''
+    if ($null -ne $policy -and $policy.models) {
+        foreach ($model in $policy.models.PSObject.Properties) {
+            if ([string]$model.Value.model_id -ceq $key -and -not [string]::IsNullOrWhiteSpace([string]$model.Value.alias)) {
+                $expected = $key.Substring($key.LastIndexOf('/') + 1)
+                break
+            }
+        }
+    }
     if ([string]::IsNullOrWhiteSpace($expected)) {
         return [pscustomobject]@{ Known = $false; Expected = ''; Matches = $false; Reason = 'CLAUDE_UNKNOWN_ALIAS' }
     }
@@ -401,12 +429,13 @@ function Get-OrchestrationModelRoutingPolicy {
 
     $candPaths = @()
     if (-not [string]::IsNullOrWhiteSpace($PolicyPath)) {
-        $candPaths += $PolicyPath
-    }
-    if ($PSScriptRoot) {
+        $candPaths = @($PolicyPath)
+    } elseif ($PSScriptRoot) {
         $candPaths += (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\source\registry') -ErrorAction SilentlyContinue) 'model-routing-policy.json')
     }
-    $candPaths += (Join-Path (Get-Location) 'source\registry\model-routing-policy.json')
+    if ([string]::IsNullOrWhiteSpace($PolicyPath)) {
+        $candPaths += (Join-Path (Get-Location) 'source\registry\model-routing-policy.json')
+    }
 
     $resolvedPath = $null
     foreach ($cp in $candPaths) {
@@ -472,7 +501,7 @@ function Get-OrchestrationUserConfigCatalog {
           2. Canonical policy registry source/registry/model-routing-policy.json
           3. models.jsonc / models.json in current directory or ~/.config/opencode/
           4. Environment variables (MODEL_PLANNER, MODEL_CHEAP, MODEL_STRONG, MODEL_FRONTIER)
-          5. Fallback to documented defaults from models.example.jsonc
+          5. No fallback defaults: policy failure rejects catalog resolution.
     #>
     [CmdletBinding()]
     param(
@@ -495,35 +524,35 @@ function Get-OrchestrationUserConfigCatalog {
     )
 
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
-    $pol = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
-
-    $mT1 = 'opencode-go/hy4-flash-free'
-    if ($null -ne $pol -and $pol.tiers.T1 -and $pol.tiers.T1.primary) {
-        $primaryT1 = [string]$pol.tiers.T1.primary
-        if ($pol.models.$primaryT1 -and $pol.models.$primaryT1.model_id) { $mT1 = [string]$pol.models.$primaryT1.model_id }
+    if (-not $policyRes -or $policyRes.Status -ne 'POLICY_LOADED') {
+        $failureStatus = if ($policyRes) { [string]$policyRes.Status } else { 'POLICY_INVALID' }
+        $failureDetail = if ($policyRes.Error) { ": $($policyRes.Error)" } else { '' }
+        throw "Model catalog unavailable: canonical routing policy status is $failureStatus$failureDetail"
     }
-    $mMimo = if ($null -ne $pol -and $pol.models.mimo) { [string]$pol.models.mimo.model_id } else { 'opencode/mimo-v2.6-flash-free' }
-    $mMuse = if ($null -ne $pol -and $pol.models.muse) { [string]$pol.models.muse.model_id } else { 'opencode-go/muse-spark-1.3-contributor' }
-    $mDeepSeekGo = if ($null -ne $pol -and $pol.models.deepseek_go) { [string]$pol.models.deepseek_go.model_id } else { 'opencode-go/deepseek-v4.1-flash' }
-    $mHaiku = if ($null -ne $pol -and $pol.models.claude_haiku) { [string]$pol.models.claude_haiku.model_id } else { 'claude-agent/haiku' }
-    $mLuna = if ($null -ne $pol -and $pol.models.luna) { [string]$pol.models.luna.model_id } else { 'openai/gpt-6-luna' }
-    $mSonnet = if ($null -ne $pol -and $pol.models.claude_sonnet) { [string]$pol.models.claude_sonnet.model_id } elseif ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'claude-agent/sonnet' }
-    $mTerra = if ($null -ne $pol -and $pol.models.terra) { [string]$pol.models.terra.model_id } else { 'openai/gpt-6.1-terra' }
-    $mOpus = if ($null -ne $pol -and $pol.models.claude_opus) { [string]$pol.models.claude_opus.model_id } elseif ($null -ne $pol -and $pol.models.sol) { [string]$pol.models.sol.model_id } else { 'claude-agent/opus' }
-    $mSol = if ($null -ne $pol -and $pol.models.sol) { [string]$pol.models.sol.model_id } else { 'openai/gpt-6.1-sol' }
-    $mAstra = if ($null -ne $pol -and $pol.models.astra) { [string]$pol.models.astra.model_id } else { 'openai/gpt-6-astra' }
-
-    $mCheap = $mLuna
-    if ($null -ne $pol -and $pol.tiers -and $pol.tiers.T2 -and $pol.tiers.T2.primary) {
-        $primary = [string]$pol.tiers.T2.primary
-        if ($pol.models.$primary) { $mCheap = [string]$pol.models.$primary.model_id }
+    $pol = $policyRes.Policy
+    $tierModels = @{}
+    foreach ($tierName in @('T1','T2','T3','T4')) {
+        $tierNode = $pol.tiers.PSObject.Properties[$tierName]
+        if ($null -eq $tierNode -or $null -eq $tierNode.Value) { throw "Model catalog unavailable: policy tier $tierName is missing" }
+        $primaryId = Get-PolicyModelId -Policy $pol -LogicalId ([string]$tierNode.Value.primary)
+        if ([string]::IsNullOrWhiteSpace($primaryId)) { throw "Model catalog unavailable: primary for $tierName is missing from policy models" }
+        $tierModels[$tierName] = @(Get-PolicyTierModelIds -Policy $pol -Tier $tierName)
     }
+    if ([string]::IsNullOrWhiteSpace([string]$pol.planner.model_id)) { throw 'Model catalog unavailable: planner.model_id is missing from policy' }
+    $mT1 = Get-PolicyModelId $pol ([string]$pol.tiers.T1.primary)
+    $mT2 = Get-PolicyModelId $pol ([string]$pol.tiers.T2.primary)
+    $mT3 = Get-PolicyModelId $pol ([string]$pol.tiers.T3.primary)
+    $mT4 = Get-PolicyModelId $pol ([string]$pol.tiers.T4.primary)
+    $t1Alternatives = @($tierModels.T1 | Where-Object { $_ -ne $mT1 })
+    $t2Alternatives = @($tierModels.T2 | Where-Object { $_ -ne $mT2 })
+    $t3Alternatives = @($tierModels.T3 | Where-Object { $_ -ne $mT3 })
+    $t4Alternatives = @($tierModels.T4 | Where-Object { $_ -ne $mT4 })
     $cat = @{
         'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-        'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = $mT1;                                 Provider = (Get-ModelProviderFromId $mT1); Authorized = $true; AlternativeModel = $mMimo }
-        'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = $mCheap;                                    Provider = (Get-ModelProviderFromId $mCheap); Authorized = $true; AlternativeModel = $mDeepSeekGo; AdditionalCandidates = @($mMuse, $mHaiku) }
-        'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = $mSonnet;                                 Provider = (Get-ModelProviderFromId $mSonnet); Authorized = $true; AlternativeModel = $mTerra }
-        'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = $mOpus;                                   Provider = (Get-ModelProviderFromId $mOpus); Authorized = $true; AlternativeModel = $mSol; ExceptionalModel = $mAstra }
+        'T1' = @{ Token = 'MODEL_FREE'; CatalogModel = $mT1; Provider = (Get-ModelProviderFromId $mT1); Authorized = $true; AlternativeModel = if ($t1Alternatives.Count) { $t1Alternatives[0] } else { '' }; AdditionalCandidates = @($t1Alternatives | Select-Object -Skip 1) }
+        'T2' = @{ Token = 'MODEL_CHEAP'; CatalogModel = $mT2; Provider = (Get-ModelProviderFromId $mT2); Authorized = $true; AlternativeModel = if ($t2Alternatives.Count) { $t2Alternatives[0] } else { '' }; AdditionalCandidates = @($t2Alternatives | Select-Object -Skip 1) }
+        'T3' = @{ Token = 'MODEL_STRONG'; CatalogModel = $mT3; Provider = (Get-ModelProviderFromId $mT3); Authorized = $true; AlternativeModel = if ($t3Alternatives.Count) { $t3Alternatives[0] } else { '' }; AdditionalCandidates = @($t3Alternatives | Select-Object -Skip 1) }
+        'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = $mT4; Provider = (Get-ModelProviderFromId $mT4); Authorized = $true; AlternativeModel = if ($t4Alternatives.Count) { $t4Alternatives[0] } else { '' }; ExceptionalModel = Get-PolicyModelId $pol ([string]$pol.tiers.T4.exceptional); AdditionalCandidates = @($t4Alternatives | Select-Object -Skip 1) }
     }
 
     if (-not $IgnoreUserConfig) {
@@ -661,13 +690,8 @@ function Resolve-CatalogModel {
         }
     }
 
-    $candidates = switch ($Tier) {
-        'T1' { @('opencode-go/hy4-flash-free', 'opencode/mimo-v2.6-flash-free') }
-        'T2' { @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku') }
-        'T3' { @('claude-agent/sonnet', 'openai/gpt-6.1-terra', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') }
-        'T4' { @('claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'claude-agent/fable') }
-        default { @('none (deterministic)') }
-    }
+    $policyForCandidates = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
+    $candidates = if ($null -ne $policyForCandidates) { @(Get-PolicyTierModelIds -Policy $policyForCandidates -Tier $Tier) } else { @() }
 
     return [pscustomobject]@{
         Tier                      = $Tier
@@ -868,7 +892,26 @@ function Resolve-OrchestrationModelFallback {
 
     # 1. Carrega politica dinamica canonica
     $polResult = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    if (-not $polResult -or $polResult.Status -ne 'POLICY_LOADED') {
+        $failureStatus = if ($polResult) { [string]$polResult.Status } else { 'POLICY_INVALID' }
+        return [pscustomobject]@{
+            Status=$failureStatus; IsAuthorized=$false; FallbackModel=$null; AuthorizedModel=$null
+            CandidateModel=$null; FallbackTier=$null; OriginalModel=$origModel; OriginalProvider=$origProvider
+            FallbackProvider=$null; IsCrossProvider=$false; TriggerReason=$TriggerReason
+            Reason="Canonical model-routing policy unavailable ($failureStatus); no fallback candidate is permitted."
+            AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
+            AttemptsCount=1; IsDowngrade=$false
+            ReallyAttemptedModels=@(); PreventivelyExcluded=@()
+        }
+    }
     $policy = if ($polResult -and $polResult.Status -eq 'POLICY_LOADED') { $polResult.Policy } else { $null }
+    $astraCanonicalId = Get-PolicyModelId $policy ([string]$policy.tiers.T4.exceptional)
+    $canonicalT4Primary = Get-PolicyModelId $policy ([string]$policy.tiers.T4.primary)
+    $t2DowngradeCandidates = @()
+    foreach ($logicalId in @($policy.tiers.T2.alternatives)) {
+        $id = Get-PolicyModelId $policy ([string]$logicalId)
+        if ($id) { $t2DowngradeCandidates += $id }
+    }
 
     # 2. Tracking estrito de modelos realmente tentados (passados em AttemptedModels ou FailedModel)
     $reallyAttempted = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
@@ -985,74 +1028,6 @@ function Resolve-OrchestrationModelFallback {
                 })
                 $seq++
             }
-        } else {
-            # Fallback defensivo a partir do script:DefaultModelCatalog se a politica JSON nao puder ser lida
-            if ($script:DefaultModelCatalog.ContainsKey($TargetTier)) {
-                $entry = $script:DefaultModelCatalog[$TargetTier]
-                if ($entry.CatalogModel -and $entry.CatalogModel -notmatch 'none') {
-                    $cands.Add([pscustomobject]@{
-                        ModelId       = [string]$entry.CatalogModel
-                        LogicalId     = [string]$entry.CatalogModel
-                        Provider      = [string]$entry.Provider
-                        Enabled       = $true
-                        Priority      = 1
-                        EligibleRoles = @()
-                        RequiresCost  = ($TargetTier -eq 'T4')
-                        Exceptional   = $false
-                        Tier          = $TargetTier
-                        Seq           = $seq
-                    })
-                    $seq++
-                }
-                if ($entry.AlternativeModel) {
-                    $cands.Add([pscustomobject]@{
-                        ModelId       = [string]$entry.AlternativeModel
-                        LogicalId     = [string]$entry.AlternativeModel
-                        Provider      = Get-ModelProviderFromId $entry.AlternativeModel
-                        Enabled       = $true
-                        Priority      = 2
-                        EligibleRoles = @()
-                        RequiresCost  = $false
-                        Exceptional   = $false
-                        Tier          = $TargetTier
-                        Seq           = $seq
-                    })
-                    $seq++
-                }
-                if ($null -ne $entry.AdditionalCandidates) {
-                    foreach ($addModel in @($entry.AdditionalCandidates)) {
-                        if ([string]::IsNullOrWhiteSpace([string]$addModel)) { continue }
-                        $cands.Add([pscustomobject]@{
-                            ModelId       = [string]$addModel
-                            LogicalId     = [string]$addModel
-                            Provider      = Get-ModelProviderFromId ([string]$addModel)
-                            Enabled       = $true
-                            Priority      = 3
-                            EligibleRoles = @()
-                            RequiresCost  = $false
-                            Exceptional   = $false
-                            Tier          = $TargetTier
-                            Seq           = $seq
-                        })
-                        $seq++
-                    }
-                }
-                if ($entry.ExceptionalModel) {
-                    $cands.Add([pscustomobject]@{
-                        ModelId       = [string]$entry.ExceptionalModel
-                        LogicalId     = [string]$entry.ExceptionalModel
-                        Provider      = Get-ModelProviderFromId $entry.ExceptionalModel
-                        Enabled       = $true
-                        Priority      = 2
-                        EligibleRoles = @()
-                        RequiresCost  = $true
-                        Exceptional   = $true
-                        Tier          = $TargetTier
-                        Seq           = $seq
-                    })
-                    $seq++
-                }
-            }
         }
 
         # Incorporacao de modelo customizado do catalogo do usuario se houver e nao estiver ignorando
@@ -1156,7 +1131,7 @@ function Resolve-OrchestrationModelFallback {
                     if ($null -ne $lp.Value.model_id) { $polModelId = [string]$lp.Value.model_id }
                 }
             }
-            $aliasCheck = Resolve-ClaudeAgentAlias -AliasModelId $mId -PolicyAlias $polAlias -PolicyModelId $polModelId
+            $aliasCheck = Resolve-ClaudeAgentAlias -AliasModelId $mId -PolicyAlias $polAlias -PolicyModelId $polModelId -PolicyPath $PolicyPath
             if (-not $aliasCheck.Matches) {
                 & $RecordExclusion $mId $tier $aliasCheck.Reason
                 return $null
@@ -1170,8 +1145,9 @@ function Resolve-OrchestrationModelFallback {
         # (VERIFIED_TASK_FAILURE) NEVER surfaces Fable here: VERIFIED returns
         # KERNEL_MODEL_SELECT_REQUIRED before enumeration, and nothing in this
         # resolver authorizes Fable dispatch.
-        if ($CandObj.LogicalId -eq 'claude_fable' -or $mId -eq 'claude-agent/fable') {
-            $fableAstraCanonical = 'openai/gpt-6-astra'
+        $fableModelId = Get-PolicyModelId $policy 'claude_fable'
+        if ($CandObj.LogicalId -eq 'claude_fable' -or ($fableModelId -and $mId -eq $fableModelId)) {
+            $fableAstraCanonical = $astraCanonicalId
             $fableAvailOk = (($FailedModel -ceq $fableAstraCanonical) -and
                 ($script:AvailabilityTriggerReasons -contains $TriggerReason) -and
                 [bool]$NoExecutionStarted -and
@@ -1246,18 +1222,7 @@ function Resolve-OrchestrationModelFallback {
         # (canonical primary, currently Opus) failure proof for the exact task
         # plus the attempted canonical T4 primary.
         if ($CandObj.Exceptional -or $mId -match 'astra') {
-            $canonT4Attempt = 'claude-agent/opus'
-            try {
-                if ($null -ne $policy -and $null -ne $policy.tiers -and $null -ne $policy.tiers.T4 -and -not [string]::IsNullOrWhiteSpace([string]$policy.tiers.T4.primary)) {
-                    $t4Key = [string]$policy.tiers.T4.primary
-                    $t4Node = $null
-                    try { $t4Node = $policy.models.$t4Key } catch { $t4Node = $null }
-                    if ($null -eq $t4Node -and $null -ne $policy.models.PSObject) {
-                        try { $pp4 = $policy.models.PSObject.Properties[$t4Key]; if ($null -ne $pp4) { $t4Node = $pp4.Value } } catch { $t4Node = $null }
-                    }
-                    if ($null -ne $t4Node -and -not [string]::IsNullOrWhiteSpace([string]$t4Node.model_id)) { $canonT4Attempt = [string]$t4Node.model_id }
-                }
-            } catch { $canonT4Attempt = 'claude-agent/opus' }
+            $canonT4Attempt = $canonicalT4Primary
             $kpT4 = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T4' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
             if ($reqTier -ne 'T4' -or $TriggerReason -ne 'VERIFIED_TASK_FAILURE' -or
                 (-not [bool]$kpT4.ok) -or
@@ -1310,13 +1275,12 @@ function Resolve-OrchestrationModelFallback {
     # Fable; qualquer outro caso fail-closed sem fallback generico. A kernel-owned
     # incapacity path (T3 Sonnet->T4 Opus, Opus->Astra) permanece separada e nao e substituida
     # por este caminho de disponibilidade.
-    $astraCanonicalId = 'openai/gpt-6-astra'
     $astraAvailReasons = $script:AvailabilityTriggerReasons
     $isAstraFailed = ($FailedModel -ceq $astraCanonicalId)
     if ($isAstraFailed) {
         $astraProofOk = (($astraAvailReasons -contains $TriggerReason) -and [bool]$NoExecutionStarted -and $reallyAttempted.Contains($astraCanonicalId))
         if (-not $astraProofOk) {
-            & $RecordExclusion 'claude-agent/fable' 'T4' 'FABLE_REQUIRES_ASTRA_FAILURE'
+            & $RecordExclusion (Get-PolicyModelId $policy 'claude_fable') 'T4' 'FABLE_REQUIRES_ASTRA_FAILURE'
             return [pscustomobject]@{
                 Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
                 AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
@@ -1331,7 +1295,6 @@ function Resolve-OrchestrationModelFallback {
         if ($null -ne $policy -and $null -ne $policy.models -and $null -ne $policy.models.astra -and $null -ne $policy.models.astra.fallback_candidates) {
             $astraOrder = @($policy.models.astra.fallback_candidates)
         }
-        if ($astraOrder.Count -eq 0) { $astraOrder = @('claude_fable', 'deepseek_go', 'muse') }
         foreach ($logical in $astraOrder) {
             $lid = [string]$logical
             $entry = $null
@@ -1349,7 +1312,7 @@ function Resolve-OrchestrationModelFallback {
             if ([string]::IsNullOrWhiteSpace($candModelId)) { continue }
             $candTier = $entryTier
             if ([string]::IsNullOrWhiteSpace($candTier)) {
-                if ($candModelId -ceq 'claude-agent/fable') { $candTier = 'T4' } else { $candTier = 'T2' }
+                if ($entry.id -eq 'claude_fable') { $candTier = 'T4' } else { $candTier = 'T2' }
             }
             $candPrio = 99
             try { if ($null -ne $entry.priority) { $candPrio = [int]$entry.priority } } catch { $candPrio = 99 }
@@ -1391,14 +1354,19 @@ function Resolve-OrchestrationModelFallback {
         $plannerPolicy = if ($null -ne $policy) { $policy.planner } else { $null }
         $plannerPrimary = if ($plannerPolicy) { [string]$plannerPolicy.model_id } else { '' }
         $plannerFallback = if ($plannerPolicy) { [string]$plannerPolicy.fallback_model_id } else { '' }
-        if ($plannerPrimary -ceq 'opencode-go/hy4-flash-free' -and
+        $canonicalPlanner = [string]$policy.tiers.T1.primary
+        $canonicalPlannerId = Get-PolicyModelId $policy $canonicalPlanner
+        $plannerFallbackLogical = [string]$plannerPolicy.fallback
+        $plannerFallbackEntryProperty = $policy.models.PSObject.Properties[$plannerFallbackLogical]
+        $plannerFallbackEntry = if ($plannerFallbackEntryProperty) { $plannerFallbackEntryProperty.Value } else { $null }
+        if ($plannerPrimary -ceq $canonicalPlannerId -and
             $origModel -ceq $plannerPrimary -and
-            $plannerFallback -ceq 'openai/gpt-6-luna' -and
-            $policy.planner.fallback -ceq 'luna' -and
-            $policy.planner.fallback_provider -ceq 'openai' -and
+            $plannerFallback -ceq (Get-PolicyModelId $policy $plannerFallbackLogical) -and
+            $plannerFallbackLogical -and
+            $policy.planner.fallback_provider -ceq [string]$plannerFallbackEntry.provider -and
             $script:AvailabilityTriggerReasons -contains $normalizedTriggerReason -and
             $NoExecutionStarted) {
-            $lunaEntry = if ($null -ne $policy.models) { $policy.models.luna } else { $null }
+            $lunaEntry = $plannerFallbackEntry
             if ($null -eq $lunaEntry) {
                 & $RecordExclusion $plannerFallback 'T2' 'MODEL_NOT_IN_POLICY'
             } else {
@@ -1419,20 +1387,20 @@ function Resolve-OrchestrationModelFallback {
                     Seq           = 0
                 }
                 $validPlannerLuna = & $EvaluateCandidate $lunaCandidate
-                if ($null -ne $validPlannerLuna -and $validPlannerLuna.ModelId -ceq 'openai/gpt-6-luna' -and $validPlannerLuna.Provider -ceq 'openai') {
+                if ($null -ne $validPlannerLuna -and $validPlannerLuna.ModelId -ceq $plannerFallback -and $validPlannerLuna.Provider -ceq [string]$policy.planner.fallback_provider) {
                     return (& $BuildAuthorizedResult $validPlannerLuna.ModelId 'T1' 'Planner T1 Luna availability fallback; independent no-start proof required.' $false)
                 }
             }
         }
         if (($script:AvailabilityTriggerReasons -contains $normalizedTriggerReason) -and -not $NoExecutionStarted) {
-            & $RecordExclusion 'openai/gpt-6-luna' 'T1' 'INDEPENDENT_NO_START_PROOF_REQUIRED'
+            & $RecordExclusion $plannerFallback 'T1' 'INDEPENDENT_NO_START_PROOF_REQUIRED'
         }
-        & $RecordExclusion 'opencode-go/hy4-flash-free' 'T1' 'PLANNER_NO_AUTOMATIC_FALLBACK'
+        & $RecordExclusion $plannerPrimary 'T1' 'PLANNER_NO_AUTOMATIC_FALLBACK'
         return [pscustomobject]@{
             Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
             AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
             OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-            TriggerReason=$TriggerReason; Reason='Planner T1 hy4 with no automatic fallback (PLANNER_NO_AUTOMATIC_FALLBACK); no generic T1 chain and no T2/T3/T4.'
+            TriggerReason=$TriggerReason; Reason='Planner T1 policy primary with no automatic fallback (PLANNER_NO_AUTOMATIC_FALLBACK); no generic T1 chain and no T2/T3/T4.'
             AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
             AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
             ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
@@ -1446,7 +1414,7 @@ function Resolve-OrchestrationModelFallback {
     if ($cleanAgent -eq 'reviewer' -and $reqTier -ceq 'T2') {
         $revRisk = if ($null -ne $RequestedSelection.Risk) { [string]$RequestedSelection.Risk } else { '' }
         if ($revRisk -in @('high','critical') -or $revRisk -notin @('low','medium')) {
-            foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
+            foreach ($mc in $t2DowngradeCandidates) {
                 & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
             }
             return [pscustomobject]@{
@@ -1486,7 +1454,7 @@ function Resolve-OrchestrationModelFallback {
         if ($cleanAgent -eq 'engineering-advisor') { $downAllowed = $false }
         if ($cleanAgent -eq 'architect') { $downAllowed = $false }
         if (-not $downAllowed) {
-            foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
+            foreach ($mc in $t2DowngradeCandidates) {
                 & $RecordExclusion $mc 'T2' 'DOWNGRADE_PROHIBITED'
             }
             return [pscustomobject]@{
@@ -1500,7 +1468,7 @@ function Resolve-OrchestrationModelFallback {
             }
         }
         $downCandidates = & $GetDynamicCandidatesForTier 'T2'
-        foreach ($mc in @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor')) {
+        foreach ($mc in $t2DowngradeCandidates) {
             foreach ($dc in $downCandidates) {
                 if ($dc.ModelId -ne $mc) { continue }
                 $validDown = & $EvaluateCandidate $dc
@@ -1983,6 +1951,16 @@ function Resolve-OrchestrationModelSelection {
 
     $cleanAgent = $AgentName.Trim().ToLowerInvariant()
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
+    if (-not $policyRes -or $policyRes.Status -ne 'POLICY_LOADED') {
+        $policyFailure = if ($policyRes) { [string]$policyRes.Status } else { 'POLICY_INVALID' }
+        return [pscustomobject]@{
+            Status='REJECTED'; DecisionStatus=$policyFailure; Reason="Canonical model-routing policy unavailable ($policyFailure)."
+            Agent=$cleanAgent; requested_role=$cleanAgent; Tier=$null; selected_tier=$null
+            ModelToken=$null; CatalogModel=$null; selected_model_id=$null; Provider='none'
+            selected_provider='none'; IsCompliant=$false; Authorized=$false; AuthorizedSelection=$false
+            policy_version='unknown'; policy_hash=''; fallback_candidates=@()
+        }
+    }
     $polHash = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyHash } else { '' }
     $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.3.0' }
 
@@ -2353,8 +2331,8 @@ function Resolve-OrchestrationModelSelection {
         # Planner is policy-primary-only (T1, MODEL_PLANNER, no automatic fallback).
         # Never silently remap Planner to another model; never Sonnet;
         # build never routes to T4.
-        $plannerPrimaryId = 'opencode-go/hy4-flash-free'
-        $plannerPrimaryProv = 'opencode-go'
+        $plannerPrimaryId = Get-PolicyModelId $policyRes.Policy ([string]$policyRes.Policy.planner.primary)
+        $plannerPrimaryProv = [string]$policyRes.Policy.planner.provider
         try {
             if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.planner) {
                 if (-not [string]::IsNullOrWhiteSpace([string]$policyRes.Policy.planner.model_id)) {
@@ -2365,12 +2343,13 @@ function Resolve-OrchestrationModelSelection {
                 }
             }
         } catch { }
-        if ($plannerPrimaryId -cne 'opencode-go/hy4-flash-free') {
+        $tierPlannerId = Get-PolicyModelId $policyRes.Policy ([string]$policyRes.Policy.tiers.T1.primary)
+        if ([string]::IsNullOrWhiteSpace($plannerPrimaryId) -or $plannerPrimaryId -cne $tierPlannerId) {
             return [pscustomobject]@{
                 Status                    = 'REJECTED'
                 DecisionStatus            = 'PLANNER_PRIMARY_MISMATCH'
-                Reason                    = "Planner policy primary is not the configured hy4 model ('$plannerPrimaryId')."
-                selection_reason          = "Planner policy primary is not the configured hy4 model ('$plannerPrimaryId')."
+                Reason                    = "Planner policy primary is inconsistent with the T1 primary ('$plannerPrimaryId')."
+                selection_reason          = "Planner policy primary is inconsistent with the T1 primary ('$plannerPrimaryId')."
                 Agent                     = $cleanAgent
                 requested_role            = $cleanAgent
                 Tier                      = $null
@@ -2457,15 +2436,17 @@ function Resolve-OrchestrationModelSelection {
                 $terraEnabled = [bool]$polRes2.Policy.models.terra.enabled
             }
             if ($terraEnabled) {
-                $terraId = 'openai/gpt-6.1-terra'
+                $terraId = ''
                 try {
                     if ($null -ne $polRes2.Policy -and $null -ne $polRes2.Policy.models -and $null -ne $polRes2.Policy.models.terra -and -not [string]::IsNullOrWhiteSpace([string]$polRes2.Policy.models.terra.model_id)) {
                         $terraId = [string]$polRes2.Policy.models.terra.model_id
                     }
-                } catch { $terraId = 'openai/gpt-6.1-terra' }
-                $catalogRes.CatalogModel = $terraId
-                $selectedProv = Get-ModelProviderFromId $terraId
-                $reason += " Terra selected for visual/document capability."
+                } catch { $terraId = '' }
+                if (-not [string]::IsNullOrWhiteSpace($terraId)) {
+                    $catalogRes.CatalogModel = $terraId
+                    $selectedProv = Get-ModelProviderFromId $terraId
+                    $reason += " Policy T3 visual/document alternative selected."
+                }
             }
         }
     }

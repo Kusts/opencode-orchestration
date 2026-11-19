@@ -6,7 +6,14 @@ $passed=0
 function Assert-That {param([bool]$Condition,[string]$Name);if(-not $Condition){throw "FAIL: $Name"};$script:passed++}
 function Copy-Policy {param($Source);return (ConvertFrom-Json (ConvertTo-Json $Source -Depth 20 -Compress))}
 $clock={ '2026-10-02T12:00:00Z' }
-$before=@(Get-ChildItem -LiteralPath $env:TEMP -Force | ForEach-Object {$_.Name} | Sort-Object)
+$originalTemp=$env:TEMP
+$originalTmp=$env:TMP
+$sandbox=Join-Path ([IO.Path]::GetTempPath()) ('doctor-fs-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $sandbox | Out-Null
+try {
+  $env:TEMP=$sandbox
+  $env:TMP=$sandbox
+  $before=@(Get-ChildItem -LiteralPath $sandbox -Force | ForEach-Object {$_.Name} | Sort-Object)
 $healthy=Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform linux -Clock $clock -Probe {param($name,$budget) if($name -eq 'jev'){return @{health='healthy';detail='Ready'}};return @{health='unavailable';detail='Unavailable'}}
 Assert-That ($healthy.capabilities.jev.health -eq 'healthy' -and $healthy.capabilities.jev.provider -eq 'jev-advisory') 'healthy primary descriptor'
 Assert-That ($healthy.generated_at -eq '2026-10-02T12:00:00Z') 'injected timestamp preserved'
@@ -32,7 +39,7 @@ $executionPolicy=Copy-Policy $policy
 $executionPolicy.capabilities.jev.risk_class.authority='execution'
 $secureFallback=Get-OrchestrationCapabilityFallback -Capability jev -Health unavailable -Policy $executionPolicy
 Assert-That ($secureFallback.blocked -and $secureFallback.blocker_type -eq 'CAPABILITY_SECURITY_HEALTH_BLOCKED' -and -not $secureFallback.use_fallback) 'execution-risk health failure blocks without fallback authority'
-$after=@(Get-ChildItem -LiteralPath $env:TEMP -Force | ForEach-Object {$_.Name} | Sort-Object)
+  $after=@(Get-ChildItem -LiteralPath $sandbox -Force | ForEach-Object {$_.Name} | Sort-Object)
 Assert-That ((ConvertTo-Json $before -Compress) -ceq (ConvertTo-Json $after -Compress)) 'doctor does not mutate filesystem state'
 $first=Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform linux -Clock $clock -Probe {param($name,$budget) @{health='healthy';detail='ok'}}
 $second=Invoke-OrchestrationCapabilityDoctor -Policy $policy -Platform linux -Clock $clock -Probe {param($name,$budget) @{health='healthy';detail='ok'}}
@@ -160,4 +167,10 @@ Assert-That ($realWindowsReport.capabilities.'semantic-discovery'.provider -eq '
 $realFallback=Get-OrchestrationCapabilityFallback -Capability 'semantic-discovery' -Health unavailable -Policy $realPolicy -Platform 'windows'
 Assert-That ($realFallback.use_fallback -and $realFallback.fallback_to -eq 'direct-search' -and $null -eq $realFallback.fallback_rejected_reason) 'real policy still falls back from an unavailable primary to the first declared destination on windows'
 
-Write-Output "PASS: $passed assertions"
+  Write-Output "PASS: $passed assertions"
+}
+finally {
+  $env:TEMP=$originalTemp
+  $env:TMP=$originalTmp
+  Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+}

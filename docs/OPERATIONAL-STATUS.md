@@ -1,6 +1,6 @@
 # Estado operacional
 
-**Atualizado em 2026-11-18.** Resumo de evidências operacionais; não substitui
+**Atualizado em 2026-11-19.** Resumo de evidências operacionais; não substitui
 os relatórios vinculados nem o [plano de maturidade](plans/ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md).
 “Implementado” não significa certificado além do escopo explicitamente provado.
 
@@ -11,14 +11,17 @@ os relatórios vinculados nem o [plano de maturidade](plans/ORCHESTRATION-OPERAT
 | Guardrail de destinos e integridade de caminhos ativos (F1) | Testes do guard, ownership, uninstall e consistência passaram; revisão de segurança aprovada. Ensaio somente em fixtures temporárias. | [F1 — guardrail](../evidence/operational-maturity-2026-11-18/F1-guardrail.md) |
 | Certificação de instalação (F2) | Dois ciclos em HOME temporário: instalação, idempotência e uninstall; veredito PASS delimitado e hashes ativos inalterados. | [F2 — instalador](../evidence/operational-maturity-2026-11-18/F2-installer-certification.md) |
 | Pós-merge (F4) | CLI Plan/Apply e testes em repositório descartável; não executado contra GitHub real. | [F4 — pós-merge](../evidence/operational-maturity-2026-11-18/F4-post-merge.md) |
+| Autonomia ponta a ponta (M3) | PASS delimitado às fatias A/B/C; não equivale à certificação integrada de todos os cenários nem mede eficiência. | [CHANGELOG](../CHANGELOG.md) |
+| Backlog/documentação (M4) | Classificação read-only concluída; 93 issues abertas conforme auditoria de 2026-11-19. Sem fechamento em massa. | [Relatório M4](../evidence/operational-maturity-2026-11-18/M4-backlog-classification.md); contagem atualizada pela auditoria de 2026-11-19 |
 
 ## Implementado, mas não certificado
 
 | Frente | Situação |
 |---|---|
-| Permissões em runtime (F3) | Harness entregue; 8/8 testes e `Plan` OK. `Run` abortou antes de tocar o serviço por `F3_VERSION_MISMATCH` (pin 2.3.0 vs binário 2.3.2). **Allow/ask/deny não estão comprovados.** [Evidência F3](../evidence/operational-maturity-2026-11-18/F3-permissions-hold.md) |
-| Backlog e documentação (F5) | Classificação read-only em 2026-11-18: 91 issues abertas, 0 PRs no conjunto; categorias e ressalvas no [relatório M4](../evidence/operational-maturity-2026-11-18/M4-backlog-classification.md). Comentários registrados em #141, #21 e #273. |
+| Permissões em runtime (F3) | Harness rerodado em runtime descartável 2.3.0: `/shell` retornou HTTP 204, mas não houve evento de decisão (`permission_events=[]`). **Allow/ask/deny seguem HOLD: não estão comprovados como gate/evento efetivo; HTTP 204 não certifica permissão.** [Evidência F3](../evidence/operational-maturity-2026-11-18/F3-permissions-hold.md) |
+| Backlog e documentação (F5) | Classificação read-only concluída. A contagem de 93 issues abertas é da auditoria de 2026-11-19; a medição de 91 issues/0 PRs no relatório M4 é o snapshot anterior de 2026-11-18. Comentários registrados em #141, #21 e #273. |
 | Certificação ponta a ponta (F6) | Ainda não há certificação integrada dos cenários A–E nem medição comparável de eficiência. Primitivas existentes não equivalem a prova integrada. |
+| Permissões de shell dos workers | Política alterada: shell irrestrito nos 19 workers; `edit` por papel, `task: deny` e `subagent: * deny` preservados. Isso não constitui controle técnico contra escrita: comandos shell podem alterar arquivos mesmo com `edit: deny`. Ver [issue #141](https://github.com/Kusts/opencode-orchestration/issues/141) e CHANGELOG. |
 
 ## HOLD por limitação externa ou evidência ausente
 
@@ -27,19 +30,29 @@ os relatórios vinculados nem o [plano de maturidade](plans/ORCHESTRATION-OPERAT
 - Retomada automática do Planner e handoff dinâmico worker→worker (#241):
   limitações/capacidades nativas não demonstradas; spikes do handoff retornaram
   `NOT_SUPPORTED`. Relay via Planner continua suportado.
-- Permissões allow/ask/deny: bloqueadas pela divergência de versão descrita em F3.
+- Permissões allow/ask/deny: F3 foi executada no runtime 2.3.0, mas segue HOLD por ausência de evento/gate efetivo observável. Alterações de permissões/segurança não estão certificadas.
+- Shell irrestrito nos 19 workers: risco comportamental residual; `edit: deny` não impede escrita via shell. A restrição de shell não é um limite técnico de contenção.
 - Fallback real para 429/quota/503: só há cobertura sintética.
 - Eficiência: telemetria disponível não tem baseline comparável; não mensurada.
 
 ## Backlog futuro
 
 - Revisar individualmente os itens classificados em M4; não fechar itens em
-  massa. A consulta de 2026-11-18 retornou 91 issues abertas (a contagem 90 é
-  histórica; ver relatório M4).
-- Retomar F3 somente em runtime descartável e com versão compatível; executar
-  F6 quando seus cenários e medições puderem ser observados.
+  massa. A auditoria de 2026-11-19 reportou 93 issues abertas; o relatório M4
+  registra o snapshot anterior de 91 em 2026-11-18.
+- F3 foi rerodada em runtime descartável 2.3.0; reavaliar o HOLD somente com
+  prova observável de allow/ask/deny. Executar F6 quando seus cenários e
+  medições puderem ser observados.
 - Reavaliar os HOLDs apenas diante de nova capability nativa observável e
   evidência específica, conforme critérios do plano.
 
 Sem daemon, scheduler, segundo Planner ou motor novo. Preservar configuração
 ativa e worktrees de terceiros; não usar force-push nem reset destrutivo.
+
+## Evolução — 19/11/2026
+
+Veredito: implementado e validado; alterações consolidadas em 24 arquivos (+347/−823). PR #288 em verificação.
+Incluiu #287 (policy única T1–T4), #286 (remoção de provas sem callers), correções HY4/Fix e atualização documental.
+Validações focadas e suíte V3 passaram; distribuição: 24 PASS / 0 FAIL / 1 SKIP. B2 foi resolvido com provisionamento reversível do binário v2.3.0. Anchors de pins resolvidos por conteúdo estável, com falha fechada se o padrão não for único.
+PR #288 aguarda checks; permanecem HOLDs de autonomia. Fase 5 depende de provider/capacidade externa; conclusão causal de eficiência exige runtime V2 vivo e A/B controlado.
+Detalhes, decisões e próximos passos: [relatório da evolução](../evidence/evolution-2026-11-19/RELATORIO.md).

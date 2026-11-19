@@ -305,6 +305,23 @@ $fbUser = Resolve-OrchestrationModelFallback -RequestedSelection $selCustomCoder
 Assert-Router ($fbUser.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and -not [bool]$fbUser.IsAuthorized) "B.4: Fallback customizado permanece HOLD"
 Assert-Router ($null -eq $fbUser.FallbackModel -and $fbUser.CandidateModel -eq 'opencode-go/deepseek-v4.1-flash') "B.4: Candidato T2 segue a ordem declarada sem autorizar replay"
 
+# B.5 Canonical policy missing/invalid must never fall through to legacy defaults.
+$missingPolicyPath = Join-Path ([System.IO.Path]::GetTempPath()) ("model-policy-missing-" + [Guid]::NewGuid().ToString('N') + '.json')
+$missingPolicy = Get-OrchestrationModelRoutingPolicy -PolicyPath $missingPolicyPath -ForceReload $true
+Assert-Router ($missingPolicy.Status -eq 'POLICY_MISSING') "B.5: Policy explicitamente ausente falha fechado"
+$missingCatalogFailed = $false
+try { $null = Get-OrchestrationUserConfigCatalog -PolicyPath $missingPolicyPath -IgnoreUserConfig $true } catch { $missingCatalogFailed = $_.Exception.Message -match 'POLICY_MISSING' }
+Assert-Router $missingCatalogFailed "B.5: Catalogo nao substitui policy ausente por defaults"
+$invalidPolicyPath = Join-Path ([System.IO.Path]::GetTempPath()) ("model-policy-invalid-" + [Guid]::NewGuid().ToString('N') + '.json')
+try {
+    Set-Content -LiteralPath $invalidPolicyPath -Value '{ invalid json' -Encoding UTF8
+    $invalidCatalogFailed = $false
+    try { $null = Get-OrchestrationUserConfigCatalog -PolicyPath $invalidPolicyPath -IgnoreUserConfig $true } catch { $invalidCatalogFailed = $_.Exception.Message -match 'POLICY_INVALID' }
+    Assert-Router $invalidCatalogFailed "B.5: Catalogo nao substitui policy invalida por defaults"
+} finally {
+    Remove-Item -LiteralPath $invalidPolicyPath -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host "`n=========================================================="
 Write-Host "Total: $total | Passed: $passed | Failed: 0"
 Write-Host "VEREDITO: ORCHESTRATION_MODEL_ROUTER_UNIT_TESTS_PASS"
