@@ -57,7 +57,7 @@ histórica, sem efeito).
   Escala horizontal: evidência, volume e especialização delimitada.
 - Planner `build` mantém `opencode-go/hy4-flash-free` como primário T1; Luna (`openai/gpt-6-luna`) é candidato de disponibilidade same-tier somente com prova independente de não-início. Sem cadeia T1 genérica nem promoção para T2/T3/T4.
   A recuperação automática completa continua BLOCKED: o caminho nativo seguro sem duplicação não está comprovado. Em 2026-11-16, `opencode run --session <id> --model <m>` sem mensagem falhou com “You must provide a message”; não repetir o turno nem criar segundo Planner/supervisor.
-  O modelo global e `agents.build.model` permanecem DeepSeek Go; outros agentes não herdam Luna.
+  O modelo global e `agents.build.model` usam `opencode-go/hy4-flash-free`; outros agentes não herdam Luna.
   O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
   necessárias. Sem prova segura de que a execucao nao comecou, nao ha replay automatico
   apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Sonnet, nunca T3/T4
