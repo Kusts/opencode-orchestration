@@ -1,6 +1,10 @@
 models.jsonc
 node_modules/
 evidence/*
+!evidence/operational-maturity-2026-11-18/
+evidence/operational-maturity-2026-11-18/*
+!evidence/operational-maturity-2026-11-18/F3-permissions-hold.md
+!evidence/operational-maturity-2026-11-18/M6-efficiency-baseline.md
 !evidence/distribution-hardening/
 !evidence/release-readiness/
 !evidence/v3.1/

@@ -25,7 +25,7 @@ estava ativo e foi preservado.
 
 Com `F3_PERMISSION_RUN_OPT_IN=1`, `Run` abortou em `F3_VERSION_MISMATCH`:
 pin 2.3.0 versus binário instalado 2.3.2. A falha ocorreu antes de
-`service set port`/start. JSON: `C:\Users\walis\AppData\Local\Temp\f3-run-controlled.json`;
+`service set port`/start. JSON: `<TEMP>/f3-run-controlled.json`;
 `ACTIVE_PATHS_UNCHANGED`; exit 1; `cases=[]`, `endpoints=[]`. Nenhuma sessão
 foi criada e nenhum comando de permissão foi executado.
 
@@ -46,3 +46,29 @@ e runtime 2.3.2; serviço real preservado e não alterado.
 - F2: `evidence/operational-maturity-2026-11-18/F2-installer-certification.md`
 - F4: `evidence/operational-maturity-2026-11-18/F4-post-merge.md`
 - Plano: `docs/plans/ORCHESTRATION-OPERATIONAL-MATURITY-PLAN.md`
+
+## Atualização: execução real no runtime 2.3.0
+
+O runtime 2.3.0 foi provisionado em HOME/perfil temporário, sem tocar no
+2.3.2 do operador; wrapper `.cmd` fez o harness enxergar a versão correta.
+Correções: gate aceita `stopped` com exit 0 antes e depois; `$result=$plan`
+deixou de compartilhar hashtable; autenticação lê `service.json` do XDG
+isolado com senha redigida; HTTP 204 é sucesso; endpoints de
+permissão/evento são consultados após `/shell`.
+
+Testes focados: **34/34**; `-Mode Plan` PASS; `git diff --check` limpo.
+Na execução real, `/openapi.json` retornou HTTP 200, 3 sessões foram criadas
+e `/shell` retornou HTTP 204. Endpoints descobertos:
+`/api/permission/request`, `/api/permission/saved`,
+`/api/session/{sessionID}/permission`,
+`/api/session/{sessionID}/permission/{requestID}`, `.../reply` e
+`/api/event`. `permission_events=[]` nos três casos; allow/ask/deny
+classificados HOLD por ausência de evento de decisão. Senha redigida; serviço
+owned iniciado/parado em porta efêmera; `ACTIVE_PATHS_UNCHANGED`; exit 0.
+JSON resumido em
+`<TEMP>/f3-run-230g.json` (não versionado).
+
+**Conclusão atual:** F3 permanece HOLD com evidência definitiva: a API
+`/shell` não emite evento de decisão de permissão observável neste runtime.
+HTTP 204 não prova decisão. Compatibilidade com 2.3.2 segue não certificada;
+nenhum pin foi alterado.
