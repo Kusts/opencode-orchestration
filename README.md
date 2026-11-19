@@ -17,6 +17,8 @@ da primeira ação), ciclo `coder → tester → reviewer` e um plugin de
 enforcement que injeta o mandato de orquestração em toda sessão e grava
 telemetria local sanitizada. Detalhes em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Estado operacional e limites das certificações: [docs/OPERATIONAL-STATUS.md](docs/OPERATIONAL-STATUS.md).
+
 ## Requisitos
 
 | Requisito | Suporte |
