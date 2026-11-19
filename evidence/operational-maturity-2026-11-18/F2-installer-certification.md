@@ -26,7 +26,7 @@ corrigido.
 | Testes `certify-installer-home.tests.ps1` | PASS; incluem recusa de `C:\oo-f2-nope`, saída fora do run, reordenação de tuplas e tupla divergente |
 | `git diff --check` | limpo |
 
-Manifesto da execução: `C:\Users\walis\AppData\Local\Temp\oo-f2-20261118T142910542Z\artifacts\certification.json` (não versionado). Comparação byte a byte registra somente `AGENTS.md embeds TargetHome`; `permission_order_differs=false`. A comparação de regras usa tuplas `(action, resource, effect)`, evitando tratar reordenação como divergência semântica.
+Manifesto da execução: `<TEMP>/oo-f2-20261118T142910542Z/artifacts/certification.json` (não versionado). Comparação byte a byte registra somente `AGENTS.md embeds TargetHome`; `permission_order_differs=false`. A comparação de regras usa tuplas `(action, resource, effect)`, evitando tratar reordenação como divergência semântica.
 
 Testes anteriores: tester `OM-F2-TEST` PASS, sem regressões. Revisões de
 segurança `OM-F2-SEC` e `OM-F2-SEC-2` motivaram correções M1–M4 (guard de
