@@ -1,242 +1,77 @@
-# Permissões dos agentes (P4 — hardening)
+# Permissões dos agentes
 
-Fonte canônica: `source/agents/*.md` (frontmatter `permission:`) + templates por geração
-(`templates/opencode.v1.json.tmpl` e `templates/opencode.v2.json.tmpl`, escolhidos pelo
-`-Runtime` do instalador). O instalador (`install.ps1`) faz strip do bloco
-`orchestration:` e substitui tokens `{{MODEL_*}}`/`{{REPO_DIR}}`/`{{HOME}}`; mapas `bash:`
-sobrevivem intactos. Permissões `bash:`/`shell` vivem nos `.md`/template, não só no
-`opencode.json`.
+## Fonte canônica e propriedade
 
-No V2 com o marcador completo `agent-config:global`, a **Orquestração** instala e é dona dos 19 perfis worker em `agents/*.md` e do bloco `agents` do `opencode.json` (incluindo `build`, `title` e os subagentes do escopo da Orquestração). O runtime é dono do texto global (`<!-- agent-config:global:start/end -->`) e as `permissions` de topo, além de `mcp` e demais chaves user-owned, que o instalador preserva; os perfis worker e o bloco `agents` não são sobrescritos pelo runtime. Sem marcador, o instalador opera em modo standalone/snapshot.
+As permissões dos 19 workers têm fonte canônica em `source/agents/*.md`.
+Os templates V1/V2 preservam a hierarquia rasa e as permissões do Planner;
+o instalador traduz o frontmatter canônico para o dialeto do runtime.
+Configurações ativas do usuário são fora do escopo desta mudança.
 
-## Tabela 19 agentes × classe × barreira
+## Modelo vigente: shell livre, edit preservado
 
-| Agente | Classe | edit | bash | Barreira |
-|---|---|---|---|---|
-| explorer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| researcher | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| architect | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| security-reviewer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| requirements-analyst | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| engineering-advisor | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| product-designer | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| skeptic | read-only | deny | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| coder | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| frontend-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| backend-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| database-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| ai-agent-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| automation-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| infra-engineer | writer-shell | allow | allow-default + denies/`ask` | runtime-enforced + planner-enforced |
-| docs-manager | writer-diagnostic | allow | allowlist de leitura/diagnóstico | runtime-enforced (comando inicial) + prompt-enforced (composição, redirecionamento e flags de escrita/execução) |
-| tester | validator-shell | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
-| debugger | validator-shell (diagnóstico) | deny | allow-default + denies destrutivos/elevação/git/deploy | runtime-enforced (edit + denies nomeados) + prompt/planner-enforced (escrita via shell não-listada) |
+Por decisão explícita do usuário, todas as regras específicas `deny` e `ask`
+de shell foram removidas. Cada worker usa somente `bash: "*": allow`; não há
+allowlist nominal nem bloqueio de shell por comando. Isso é uma ampliação
+deliberada de autoridade no shell, não uma afirmação de isolamento ou de
+contenção runtime de comandos.
 
-Classes: **read-only** = sem escrita (`edit: deny`), shell restrito a allowlist de leitura/diagnóstico (`shell "*": deny` + allows nomeados); **writer-shell** = edita + shell amplo com
-negações/confirmações pontuais; **writer-diagnostic** = edita via ferramenta de edição; shell somente leitura/diagnóstico (docs-manager); **diagnostic** =
-sem escrita + shell restrito a allowlist explícita (legado; nenhum agente usa mais —
-tester e debugger migraram para validator-shell); **validator-shell** = ferramenta de
-edição bloqueada (`edit: deny`) + shell allow-default com negações destrutivas (tester,
-debugger) —
-escrita via shell não coberta por negações é proibição comportamental
-(prompt/planner-enforced), não barreira de runtime.
+| Papel | `edit` | `bash` | `task` |
+|---|---|---|---|
+| ai-agent-engineer, automation-engineer, backend-engineer, coder, database-engineer, docs-manager, frontend-engineer, infra-engineer | allow | `*`: allow | deny |
+| architect, debugger, engineering-advisor, explorer, product-designer, requirements-analyst, researcher, reviewer, security-reviewer, skeptic, tester | deny | `*`: allow | deny |
 
-Barreiras: **runtime-enforced** = aplicado pelo runtime (`edit`, mapas `bash:`,
-`subagent_depth: 1` + `permission.task: deny` no `opencode.json` — hierarquia rasa, workers
-não delegam); **prompt-enforced** = instrução no corpo do agente (ex.: tester nunca usa
-shell para editar; seletividade do docs-manager; triggers do planning layer); **planner-enforced**
-= campos do Dispatch Contract (`ALLOWED_ENVIRONMENT`, `PRODUCTION_AUTHORIZED`,
-`CREDENTIAL_SCOPE`, `PROHIBITED_OPERATIONS` concretas) + confirmação separada do Planner
-para ações destrutivas irreversíveis e criação/revogação/rotação de credenciais.
+`edit: allow` continua nos oito papéis de implementação; `edit: deny` nos
+outros onze bloqueia a ferramenta de edição conforme o papel. Para papéis
+read-only, instruções comportamentais continuam proibindo
+alterações, embora shell irrestrito não constitua barreira técnica contra
+escrita por comando. `task: deny` mantém workers sem subdelegação.
+No V2, `subagent: * deny` nos workers permanece no template para garantir
+hierarquia rasa; os 19 `allow` de `build` também permanecem.
 
-## V2 — dialeto nativo (V3.1)
+## Decisão e limites
 
-O mesmo frontmatter canônico dos 19 agentes produz o shape nativo V2 via
-`scripts/runtime/lib/AgentTranslator.ps1` (determinístico, fail-closed):
+As antigas allowlists de leitura, negações nomeadas e confirmações `ask` para
+shell foram removidas por decisão do usuário. Não as descreva como proteção
+runtime ou como restrições vigentes. As instruções dos agentes, o Dispatch
+Contract, a autorização do Planner e as confirmações separadas para efeitos
+destrutivos, credenciais e produção continuam aplicáveis, mas não substituem
+uma negação de shell no runtime.
 
-| Conceito | V1 | V2 |
-|---|---|---|
-| Mapa de agentes | `agent` | `agents` |
-| Permissões por agente | `permission` | `permissions` (array de regras ordenadas) |
-| Ação shell | `bash` | `shell` |
-| Ação subagente | `task` | `subagent` |
-| Profundidade de subagente | `subagent_depth` | `experimental.subagent_depth` |
+Permissão de ferramenta não concede autoridade para ampliar o escopo delegado,
+alterar produção, operar credenciais, enviar comunicações externas ou ignorar
+gates do Task Kernel. `PRODUCTION_AUTHORIZED` ausente equivale a `false`;
+mesmo `true` não autoriza por si só ação destrutiva irreversível nem gestão de
+credenciais. `CREDENTIAL_SCOPE` contém identificadores, nunca segredos.
 
-Regras da tradução:
+## Tradução V1/V2
 
-- `edit→edit`, `bash→shell`, `task→subagent`; `allow`/`ask`/`deny`
-  preservados — **nenhuma regra é ampliada** (nunca `deny`→`ask`/`allow`)
-  para compatibilidade.
-- A ordem de regras V2 é **security-sensitive**: em V2 vence a **última**
-  regra que casa (last-match-wins). A tradução emite primeiro o catch-all,
-  depois `allow`/`ask` e, por último, os denies específicos; o guard só aceita
-  um deny após um permit quando prova que o padrão deny é seu subconjunto.
-- Paridade semântica V1↔V2 (mesmos 19 allows, mesmos pools de modelo,
-  workers sem subdelegação, `default_agent`/`build`/`title` iguais) é
-  validada pelo check 14.
-- Padrão ambíguo (sobreposição de regras sem precedência clara) quebra o
-  build com `ambiguous-permission-overlap` — nada é renderizado por
-  suposição.
+O frontmatter traduz `edit` para `edit`, `bash` para `shell` e `task` para
+`subagent`. Em ambos os dialetos, o catch-all de shell é `allow`; `task: deny`
+é mantido nos workers. Os modelos e tokens dos perfis não são alterados por
+esta mudança.
 
-Status de enforcement (honesto): as permissões V2 nativas são renderizadas,
-instaladas (dialeto `agents`/`permissions`) e validadas por shape, ordem e
-paridade. A camada `experimental.policies` (hard-deny global) e a validação
-de enforcement contra o runtime V2 real **ainda não foram implementadas**
-(Phase 5 do plano V3.1 pendente) — hoje não existe hard-deny além das
-permissões nativas, e nenhum claim de enforcement V2 vai além do que os
-checks cobrem.
+Templates V1/V2 mantêm a profundidade de subagentes em 1, os denies de
+subdelegação para workers e os allows do Planner para os agentes previstos.
+Esta decisão não altera permissões de topo, MCP, plugins nem a configuração
+ativa do runtime.
 
-### Diretórios externos no OpenCode 2.2.6
+## Enforcement e ressalvas
 
-O runtime 2.2.6 permite por padrão o acesso a diretórios fora do projeto;
-sem regra explícita `external_directory`, esse acesso não pede confirmação.
-O template V2 deste pacote não define essa ação. Quando o marcador
-`agent-config:global` está presente, as permissões ativas pertencem ao dono da configuração nativa do runtime e este instalador não as altera. Quem precisar de confirmação ou bloqueio
-deve configurar uma regra `external_directory` no dono da configuração ativa;
-não inferir contenção a partir de `runtime_grant_enforcement.v2`, que permanece
-OFF/HOLD.
+Permissões de ferramenta descrevem o controle do runtime sobre a rota de tool;
+não se deve inferir contenção de outras superfícies, como APIs REST, nem
+atribuir ao Kernel enforcement de runtime quando a flag correspondente está
+desligada. Grants do Kernel são registro/decisão de autoridade e não substituem
+permissões do runtime.
 
-### Camadas de enforcement (matriz)
+O Task Kernel mantém os controles de autoridade existentes:
 
-| Camada | Status |
-|---|---|
-| Permissões V1 | legado congelado (prova histórica em 1.18.x cobre o legado); o deny das flags desta rodada não é alegado como contido no V1 — templates + testes do instalador + smoke CI 1.18.x |
-| Permissões V2 | deny de flags (`git diff/show/log *--output*`, `rg *--pre*`, `rg *--hostname-bin*`) provado no runtime 2.3.0 (5/5 comandos, `executed=false`, controles positivos OK, drift 0); renderizado + validado por checks (consistency 12–15). Enforcement geral de grants/policies segue HOLD/Phase 5 |
-| Policies V2 (`experimental.policies`) | HOLD (Phase 5); nenhum hard-deny enviado |
-| Hooks do plugin V1 | runtime-enforced (legado, provado em 1.18.x; sem novos desenvolvimentos — testes do plugin) |
-| Hooks do plugin V2 | implementado com testes mock; claim live pendente da lane CI V2 (Phase 8) |
-| Kernel (CAS/gate/DONE/grants/leases/worktrees) | kernel-enforced; flags OFF por padrão até ativação com evidência (Phase 19) |
+- Grants efetivos resultam da interseção entre baseline do papel, grants da
+  task, capacidade do runtime e autorização de ambiente.
+- Workers retornam `candidate_pass`, `failed` ou `blocked`; somente o
+  verificador emite `verified_pass` e somente o Kernel conclui `DONE`.
+- Ações destrutivas irreversíveis e criação, revogação ou rotação de
+  credenciais exigem confirmação separada do Planner.
 
-Matriz viva em `evidence/v3.1/kernel-hardening/runtime-binding.json` — nenhum
-claim além do testado.
-
-## Limitações declaradas (sem capacidades inventadas)
-
-- `read-only` nega por default (`shell "*": deny`) e libera uma allowlist nominal de leitura/diagnóstico; `docs-manager` edita via ferramenta de edição e usa a mesma allowlist. Delegação direta entre workers (Coder→Tester→Reviewer) exige `experimental.subagent_depth >= 2` e permanece HOLD — o limite atual é 1.
-
-- Globs `bash:` são **matching de string** sobre o texto do comando. Não inspecionam
-  conteúdo de scripts, aliases, nem wrappers como `pwsh -Command ...` / `bash -c ...`.
-  Contenção real dessas rotas é planner-enforced (contrato + ownership), não do glob.
-- `ask` é **controle de confirmação, não bloqueio incondicional**: no modo auto do
-  runtime ele é auto-aprovado. `deny` é o único bloqueio no mapa.
-- `tester` e `debugger` usam **shell allow-default** (`"*": allow`) com denies de destruição
-  (`rm`, `del`, `erase`, `rd`, `rmdir`, `ri`, `Remove-Item`, `truncate`, `shred`,
-  `dd`, `format`), elevação (`sudo`, `su`, `runas`, `gsudo`, `doas`), mutação
-  Git (`push`, `reset`, `clean`, `rebase`, `merge`, `commit`, `branch -D`),
-  `dropdb`/`terraform destroy`/`kubectl delete` e `ask` para deploy/publish/infra
-  (modelo validator-shell). A política de não editar é dupla e honesta:
-  runtime-enforced para a ferramenta de edição (`edit: deny`) e para as
-  rotas de shell nomeadas acima; escrita via shell não coberta por negações
-  (`Set-Content`, `Out-File`, redirecionamento, `Copy-Item`, git não-listado)
-  é proibição comportamental — prompt-enforced (corpo do agente) +
-  planner-enforced (contrato), não barreira de glob.
-- `read-only` usa `shell "*": deny` e allowlist nominal de leitura/diagnóstico; comandos fora dela são negados por default. A allowlist valida o comando INICIAL. Os cinco padrões `git diff/show/log *--output*` e `rg *--pre*`/`*--hostname-bin*` têm deny explícito (provado no runtime V2 2.3.0; V1 congelado, sem alegação de contenção). Flags/resíduos não contidos pelo glob permanecem proibição comportamental (corpo do agente + contrato do Planner): composição (`;`, `&&`, `|`, `>`), abreviações de flags longas, `--ext-diff`/`--textconv`, `rg -z`/`--search-zip` e credenciais via prefix globs amplos (`git config --get*`, `git remote -v*`). Inspecione a configuração instalada com `opencode debug agents --standalone`; sem `--standalone`, mostra a configuração viva.
-- **Rota de tool vs superfície REST `/shell` (ressalva factual):** o rótulo
-  "runtime-enforced" vale para a rota de tool; a superfície REST
-  `/api/session/{id}/shell` não passa por tool permission (observado em 2.0.23)
-  e não deve ser assumida como deny. Prova no binário exato atual permanece
-  pendente; ver [AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md](specs/AUTHORITY-AND-CAPABILITY-AUDIT-2026-11-12.md).
-- **Grants do Kernel ≠ enforcement de runtime:** grants são registro/decisão de
-  autoridade; não constituem enforcement de runtime enquanto
-  `runtime_grant_enforcement` (v1/v2) estiver OFF.
-- **Precedência topo vs agente (não provada):** a composição entre `permissions`
-  de topo e permissões por agente (last-match-wins) não foi provada no binário
-  exato para a configuração viva; tratar como incerteza até prova de runtime.
-- Em OpenCode 2.3.0, observou-se que as regras de topo precedem as do agente
-  na lista efetiva; assim, o catch-all do perfil vence asks de topo. Por isso
-  `Format-Volume` e `diskpart` foram explicitados como deny nos writers.
-- Em 2026-11-17, a resolução efetiva foi inspecionada no binário 2.3.0, mas o enforcement por execução permanece `BLOCKED_RUNTIME_PROOF`.
-  Consulte o [relatório de confiabilidade operacional](../evidence/confiabilidade-operacional-2026-11-17/RELATORIO.md) e a [issue #141](https://github.com/akitaonrails/opencode-orchestration/issues/141).
-- `opencode debug agents` sem `--standalone` anexa ao serviço em background e
-  mostra a configuração viva do serviço, não a configuração instalada isoladamente.
-- `PRODUCTION_AUTHORIZED` ausente equivale a `false`, e `true` **não autoriza por si só**
-  ações destrutivas irreversíveis nem operações com credenciais — essas exigem
-  confirmação separada do Planner. `CREDENTIAL_SCOPE` carrega apenas
-  identificadores/perfis, nunca valores de segredos.
-- O worker **não amplia** `ALLOWED_ENVIRONMENT` / `PRODUCTION_AUTHORIZED` /
-  `CREDENTIAL_SCOPE` por inferência de papel, aprovação `ask` ou credenciais
-  disponíveis; diante de operação não coberta, interrompe e devolve ao Planner.
-- Nenhuma capacidade nova é criada por este documento: ele descreve o que está nos
-  frontmatters, no template e no Dispatch Contract.
-- Para o Tester, `Permission denied` de rota destrutiva/elevação encerra a
-  rota: sem reformulação por outro shell, wrapper, interpretador ou elevação
-  que produza o mesmo efeito; o corpo define o blocker estruturado
-  `VALIDATION_CAPABILITY_UNAVAILABLE`. Para o Debugger, a mesma regra vale com
-  o blocker `DIAGNOSIS_CAPABILITY_UNAVAILABLE`. O matcher é string-matching: conteúdo
-  dentro de wrappers não é contido pelo glob (asserção honesta nas suítes
-  `tester-shell-permissions.tests.ps1` e `debugger-shell-permissions.tests.ps1`). Sem mudança em parser/allowlist do
-  runtime — o contrato é o frontmatter canônico + corpo do agente.
-
-## Camada kernel-enforced (V3.1)
-
-Acima das barreiras por runtime/contrato, o Task Kernel (`scripts/v3/task-kernel.ps1`;
-núcleo em `scripts/v3/lib/OrchestrationTaskKernel.ps1`) aplica autoridade
-determinística, idêntica em V1 e V2:
-
-- **Grants por interseção**: autoridade efetiva = baseline do papel ∩ grants da
-  task ∩ capacidade do runtime ∩ autorização de ambiente ∩ aprovação humana
-  quando exigida (`source/registry/execution-grants.json`). Nunca união; grants
-  sensíveis (`destructive.fs`, `deploy.production`, `secrets.read`, `git.push`)
-  não estão em nenhum baseline e exigem grant explícito + aprovação.
-- **Evidence Contract**: workers emitem SOMENTE `candidate_pass`/`failed`/`blocked`;
-  `verified_pass` vem do verificador (`Set-OrchestrationTaskVerification`,
-  allowlist em `source/registry/verification-policy.json`) e `DONE` só do kernel
-  (`Complete-OrchestrationTask`, após `Test-OrchestrationTaskCompletion`).
-- **Leases/worktrees**: escrita concorrente exige lease (`cache/runtime/locks`);
-  writers paralelos exigem worktrees isoladas com cleanup ownership-aware.
-- **Flags**: `task_kernel`/`worktree_isolation`/`runtime_grant_enforcement`
-  iniciam OFF (shadow rollout, Phase 19) — enforcement de kernel torna-se
-  obrigatório somente após ativação com evidência. Estado vivo em
-  `evidence/v3.1/kernel-hardening/runtime-binding.json`.
-
-## Status V2 — spike e HOLDs (2026-09-29; revisado em 2026-10-03)
-
-Harness: `scripts/runtime/spike-v2-permissions.ps1` (resolve binário V2 via
-`-BinaryPath` → manifest do perfil v2 → probe PATH 2.x; sem binário, registra
-`skipped` e sai 0). Evidência: `evidence/v3.1/kernel-hardening/v2-permissions-spike.json`.
-Checks automatizados correspondem 1:1 a comandos executados (`--version`,
-`debug paths`, `debug config`, `debug agent`); enforcement comportamental
-(agente live tentando operação negada) fica como `manual_checklist_pending`
-— nenhum claim de enforcement V2 vai além do observado.
-
-HOLDs honestos (sem teste no runtime exato, sem claim): hard-deny via
-`experimental.policies`, live-load do plugin V2 em CI e ativação do
-`runtime_grant_enforcement`. O enforcement comportamental V2 (Phase 5)
-segue pendente do runtime real.
-
-**Camadas de permissão entregues, ainda sem enforcement ativo
-(2026-10-02/03).** O programa de confiabilidade entregou envelopes
-kernel-side de contenção de autoridade — MCP safety envelope com guard
-de autoridade sempre-nega e `MCP_REQUIRED_BLOCKED` fail-closed (P28),
-Jev como advisory com authority guard sempre-nega que nunca concede nem
-transporta grants (P29) e gating data-driven de capacidades nativas do
-V2, cujas 8 features estão todas `hold-unproven` e só podem ser
-habilitadas com evidência `exact-binary-live` validada (P40). Isso
-**não** é enforcement de permissão no runtime: `mcp_routing`,
-`jev_advisory` e o gating V2 seguem desligados
-(`source/registry/capability-flags.json`), o transporte MCP no plugin é
-shadow por default e qualquer ativação é decisão humana com evidência.
-
-**Mudança de 2026-10-03 (decisão do operador).** As permissões do agente
-`tester` trocaram o deny-default + allowlist fechada por shell amplo
-(`"*": allow`) com negações explícitas para operações destrutivas,
-elevação e mutação Git, `ask` para deploy/publish/infra e
-`edit: deny`/`task: deny` mantidos — ver o bullet correspondente em
-`CHANGELOG.md` `[Unreleased]` e a suíte
-`scripts/runtime/tester-shell-permissions.tests.ps1`. Escrita via shell
-não listada continua sendo proibição comportamental (prompt/Planner),
-não barreira de runtime.
-
-**Mudança de 2026-10-20 (decisão do operador).** As permissões do agente
-`debugger` seguem o mesmo modelo validator-shell do `tester`: shell amplo
-(`"*": allow`) com as mesmas negações/asks, `edit: deny`/`task: deny`
-mantidos, corpo adaptado para diagnóstico (blocker
-`DIAGNOSIS_CAPABILITY_UNAVAILABLE`) — suíte
-`scripts/runtime/debugger-shell-permissions.tests.ps1`.
-
-Resíduos adicionais: abreviações de flags longas do Git (por exemplo `--outp`), `--ext-diff`/`--textconv` e `rg -z`/`--search-zip` não estão cobertos pelos cinco denies. `git config --get*` e `git remote -v*` são prefix globs que também cobrem subcomandos mais amplos; não alegar proteção de credenciais. Composição (`;`, `&&`, `|`) e redirecionamento (`>`) também não estão contidos. O deny dos cinco padrões foi provado no runtime V2 2.3.0 (5/5, `executed=false`, controles positivos OK, drift 0); o enforcement geral de grants/policies segue HOLD/Phase 5. V1 é legado congelado e não é alegado como contido para essas regras.
-
-`ask` de `git push`  atrito best-effort: `git -C <dir> push`, `git -c k=v push` e espao duplo no casam o padro; a conteno real  planner-enforced + gate de delivery.
-
-No 2.3.0, `shell "*": deny` antes de allows nomeados foi observado executando os allows (last-match-wins dentro do array do agente). A composio topo-vs-agente segue no provada.
+Estado e evidências de runtime permanecem em
+`evidence/v3.1/kernel-hardening/runtime-binding.json` e nos registros de
+confiabilidade. Nenhuma capacidade ou garantia adicional é alegada aqui.

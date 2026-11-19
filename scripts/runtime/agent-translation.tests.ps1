@@ -184,15 +184,27 @@ Assert-Ok $allSubDeny '19/19 com subagent deny no V2' $subDetail
 
 $t = $canonById['tester']
 Assert-Ok (([string]$t.Edit -ceq 'deny') -and ([bool]$t.EditPresent)) 'tester edit deny' ([string]$t.Edit)
-Assert-Ok ((@($t.ShellRules)).Count -gt 10) 'tester shell map amplo' ('rules=' + (@($t.ShellRules)).Count)
 Assert-Ok ([string]$t.BashKind -ceq 'map') 'tester bash em mapa' ([string]$t.BashKind)
 Assert-Ok ([bool]$t.HasCatchAll -and ([string]$t.CatchAllEffect -ceq 'allow')) 'tester catch-all allow (shell amplo)' ([string]$t.CatchAllEffect)
+Assert-Ok ((@($t.ShellRules)).Count -eq 1 -and [string]$t.ShellRules[0].Pattern -ceq '*' -and [string]$t.ShellRules[0].Effect -ceq 'allow') 'tester somente bash * allow'
 
 $d = $canonById['debugger']
 Assert-Ok (([string]$d.Edit -ceq 'deny') -and ([bool]$d.EditPresent)) 'debugger edit deny' ([string]$d.Edit)
-Assert-Ok ((@($d.ShellRules)).Count -gt 10) 'debugger shell map amplo' ('rules=' + (@($d.ShellRules)).Count)
 Assert-Ok ([string]$d.BashKind -ceq 'map') 'debugger bash em mapa' ([string]$d.BashKind)
 Assert-Ok ([bool]$d.HasCatchAll -and ([string]$d.CatchAllEffect -ceq 'allow')) 'debugger catch-all allow (shell amplo)' ([string]$d.CatchAllEffect)
+Assert-Ok ((@($d.ShellRules)).Count -eq 1 -and [string]$d.ShellRules[0].Pattern -ceq '*' -and [string]$d.ShellRules[0].Effect -ceq 'allow') 'debugger somente bash * allow'
+
+$writerIds = @('ai-agent-engineer','automation-engineer','backend-engineer','coder','database-engineer','docs-manager','frontend-engineer','infra-engineer')
+foreach ($stem in $canonById.Keys) {
+  $c = $canonById[$stem]
+  $expectedEdit = if ($writerIds -contains $stem) { 'allow' } else { 'deny' }
+  $singleAllow = (@($c.ShellRules).Count -eq 1) -and
+    ([string]$c.ShellRules[0].Pattern -ceq '*') -and
+    ([string]$c.ShellRules[0].Effect -ceq 'allow')
+  Assert-Ok ($singleAllow -and $c.BashKind -ceq 'map' -and
+    $c.EditPresent -and $c.Edit -ceq $expectedEdit -and
+    $c.TaskKind -ceq 'scalar' -and $c.TaskScalar -ceq 'deny') "$stem minimal permissions (edit=$expectedEdit, shell allow, task deny)"
+}
 
 foreach ($stem in @('reviewer', 'security-reviewer', 'architect')) {
   $c = $canonById[$stem]
@@ -225,8 +237,6 @@ Assert-Ok $orchDropOk 'orchestration fora do frontmatter V2 (19/19)' $orchDetail
 
 $rx = $canonById['researcher']
 $rxV2 = Convert-CanonicalToV2Frontmatter -Canonical $rx
-Assert-Ok ((@($rx.ExtraPermissions)).Count -eq 2) 'researcher tem 2 permissoes extras' ((@($rx.ExtraPermissions)).Count)
-Assert-Ok ((@($rxV2.DroppedFields) -contains 'permission.webfetch') -and (@($rxV2.DroppedFields) -contains 'permission.websearch')) 'researcher extras em DroppedFields' ((@($rxV2.DroppedFields) -join ','))
 Assert-Ok ([string]$rxV2.Text -notlike '*webfetch*') 'researcher V2 sem webfetch' 'vazou'
 
 $synthAmbig = @(

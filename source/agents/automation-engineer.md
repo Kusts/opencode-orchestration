@@ -7,30 +7,6 @@ permission:
   edit: allow
   bash:
     "*": allow
-    "Format-Volume*": deny
-    "diskpart*": deny
-    "git reset --hard*": deny
-    "git reset *--hard*": deny
-    "git clean *": deny
-    "git branch -D*": deny
-    "git rebase *": allow
-    "git push": ask
-    "git push *": ask
-    "terraform destroy*": deny
-    "kubectl delete *": deny
-    "kubectl apply *": ask
-    "docker rm *": ask
-    "wrangler deploy*": ask
-    "npm run deploy*": ask
-    "ssh-keygen *": deny
-    "gh auth *": ask
-    "npm publish*": ask
-    "gh release *": ask
-    "curl *-X POST*": ask
-    "Invoke-RestMethod *-Method Post*": ask
-    "rm -rf *": ask
-    "Remove-Item *-Recurse*": ask
-    "dropdb *": deny
   task: deny
 orchestration:
   build_delegable: true

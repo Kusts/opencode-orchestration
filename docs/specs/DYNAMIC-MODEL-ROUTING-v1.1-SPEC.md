@@ -1,4 +1,4 @@
-﻿# SPEC — Dynamic Model Routing & Intelligent Advisory v1.1
+# SPEC — Dynamic Model Routing & Intelligent Advisory v1.1
 
 **Projeto:** Kusts/opencode-orchestration
 **Status:** APPROVED FOR IMPLEMENTATION
@@ -25,7 +25,7 @@ A seleção deverá ser aplicada ao runtime nativo do OpenCode V2 e verificada a
 2. Política T0–T4 configurável.
 3. Seleção específica por papel e tarefa.
 4. Fallback autorizado entre modelos e providers.
-5. Planner estável utilizando DeepSeek Go (T2), sem fallback automático.
+5. Planner estável utilizando hy4 (T1); Luna é fallback de disponibilidade somente com prova independente de não-início.
 6. Advisor com Sonnet, Opus e Astra sob demanda; Sol é candidato T4.
 7. Jev 1.13 Free integrado ao processo de decisão.
 8. Verificação do modelo efetivamente executado.
@@ -127,9 +127,10 @@ implementar retries/fallback. O Task Kernel permanece dono de
 
 | ID lógico | Modelo | Provider/model ID inicial | Tier |
 |---|---|---|---|
-| luna | GPT-6 Luna | `openai/gpt-6-luna` | T1 primary, T2 primary |
+| luna | GPT-6 Luna | `openai/gpt-6-luna` | T2 primary; T1 Planner availability fallback |
+| hy4 | hy4 Flash Free | `opencode-go/hy4-flash-free` | T1 primary / Planner |
 | mimo | MiMo V2.6 Flash Free | `opencode/mimo-v2.6-flash-free` | T1 fallback |
-| deepseek_go | DeepSeek V4.1 Flash | `opencode-go/deepseek-v4.1-flash` | T2 candidate / Planner |
+| deepseek_go | DeepSeek V4.1 Flash | `opencode-go/deepseek-v4.1-flash` | T2 candidate |
 | muse | Muse Spark 1.3 Contributor | `opencode-go/muse-spark-1.3-contributor` | T2 |
 | claude_haiku | Claude Haiku alias | `claude-agent/haiku` | T2 candidate |
 | claude_sonnet | Claude Sonnet alias | `claude-agent/sonnet` | T3 |
@@ -190,9 +191,9 @@ Executa:
 
 O uso de T0 não significa autorização para dispensar um worker exigido pelo contrato de orquestração.
 
-### T1 — Luna with same-tier free alternative
+### T1 — hy4 with same-tier free alternative
 
-**Primário:** `openai/gpt-6-luna`. **Fallback de política:** `opencode/mimo-v2.6-flash-free` (não autoriza execução sem prova de no-start).
+**Primário:** `opencode-go/hy4-flash-free`. **Fallback de política:** `opencode/mimo-v2.6-flash-free` (não autoriza execução sem prova de no-start).
 
 Tarefas:
 - Exploração.
@@ -201,7 +202,7 @@ Tarefas:
 - Extração de informação.
 - Triagem de baixo risco.
 
-Luna pertence aos perfis T1 e T2. Transporte esgotado em T1 não promove automaticamente para tier superior.
+hy4 pertence ao perfil T1; Luna permanece em T1/T2 como fallback de disponibilidade do Planner. Transporte esgotado em T1 não promove automaticamente para tier superior.
 
 ### T2 — Execução econômica
 
@@ -266,11 +267,11 @@ Uma autorização de T4 não autoriza automaticamente qualquer utilização do A
 
 | Agente | Padrão | Alternativa / escalonamento |
 |---|---|---|
-| Planner (`build`) | `opencode-go/deepseek-v4.1-flash` (T2) | Nenhum fallback automático |
-| Explorer | Luna | Candidatos T2 conforme policy |
-| Researcher | Luna | Candidatos T2 conforme policy |
+| Planner (`build`) | `opencode-go/hy4-flash-free` (T1) | Luna availability fallback com prova independente de não-início |
+| Explorer | hy4 (`opencode-go/hy4-flash-free`) | MiMo fallback; T2 conforme policy |
+| Researcher | hy4 (`opencode-go/hy4-flash-free`) | MiMo fallback; T2 conforme policy |
 | Coder | Luna | Muse / Haiku conforme admissibilidade |
-| Tester com LLM | Luna | MiMo / DeepSeek Go / Muse / Haiku |
+| Tester com LLM | hy4 (`opencode-go/hy4-flash-free`) | MiMo fallback; T2 candidates conforme policy |
 | Docs Manager | Luna | Candidatos T2 conforme policy |
 | Frontend Engineer | Luna | Muse / Haiku; T3 permitido conforme perfil |
 | Backend Engineer | Luna | Muse / Haiku; T3/T4 somente conforme perfil |
@@ -342,14 +343,14 @@ Exemplo conceitual:
 **Tiers**
 
 - `T0`: deterministic.
-- `T1`: Luna primary; MiMo fallback.
+- `T1`: hy4 primary; MiMo fallback.
 - `T2`: Luna primary; candidates DeepSeek Go, Muse, Haiku.
 - `T3`: Sonnet primary; Terra candidate.
 - `T4`: Opus primary; Sol candidate; Astra exceptional and proof-gated; Fable HOLD.
 
 **Planner**
 
-- Primary remains `deepseek_go` (`opencode-go/deepseek-v4.1-flash`, T2); same-tier Luna (`openai/gpt-6-luna`) is an availability candidate only with independent no-start proof. Native automatic recovery remains BLOCKED until a no-duplication path is proven (2026-11-16 CLI probe without a message failed with “You must provide a message”). Never Sonnet/Opus/Astra/T3/T4 for Planner availability.
+- Primary remains `hy4` (`opencode-go/hy4-flash-free`, T1); same-tier Luna (`openai/gpt-6-luna`) is an availability candidate only with independent no-start proof. Native automatic recovery remains BLOCKED until a no-duplication path is proven (2026-11-16 CLI probe without a message failed with “You must provide a message”). Never Sonnet/Opus/Astra/T3/T4 for Planner availability.
 - Stable during objective: true.
 
 **Advisor**
@@ -770,7 +771,7 @@ Não reinstalar MCPs ou substituir infraestrutura já funcional.
 - [ ] Router aplica risco, capacidade e orçamento.
 - [ ] Fallbacks são limitados e rastreáveis.
 - [ ] Native Dispatch utiliza e verifica a seleção.
-- [ ] Planner permanece em `opencode-go/deepseek-v4.1-flash`, sem fallback automático.
+- [ ] Planner permanece em `opencode-go/hy4-flash-free` (T1); Luna é fallback de disponibilidade com prova independente de não-início.
 - [ ] Advisor utiliza Luna/Sol/Astra conforme gatilhos.
 - [ ] Jev Free funciona e permanece consultivo.
 - [ ] Task/Goal Kernel preserva seus contratos.

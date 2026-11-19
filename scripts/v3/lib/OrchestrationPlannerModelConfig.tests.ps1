@@ -2,12 +2,12 @@
 .SYNOPSIS
     Planner model configuration tests (hermetic, no inference).
 .DESCRIPTION
-    Planner build uses DeepSeek Go while T2 cheap uses Luna. The global model
+    Planner build uses Hy4 while T2 cheap uses Luna. The global model
     (top level of opencode.json) stays unchanged. These tests pin that scope across
     the canonical policy, the models example, the V1/V2 templates (rendered the
     same way install.ps1 resolves MODEL_* tokens), and the Router contract.
     Checks:
-      1. Policy planner primary is opencode-go/deepseek-v4.1-flash, T2, and no model fallback
+      1. Policy planner primary is opencode-go/hy4-flash-free, T1, with Luna as held same-tier availability candidate
          is authorized for build.
       2. T1/T2/T3/T4 policy order is Luna->Mimo, Luna->DeepSeek Go->Muse->Haiku,
          Sonnet->Terra, Opus->Sol. Claude aliases stay runtime-unverified.
@@ -36,15 +36,16 @@ function Read-JsoncFile([string]$Path) {
 }
 
 $policy = Get-Content -LiteralPath (Join-Path $repo 'source\registry\model-routing-policy.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+Assert-PMC ([string]$policy.policy_version -ceq '1.6.0') 'pmc-policy-version-1.6.0'
 $planner = $policy.planner
-Assert-PMC ([string]$planner.primary -ceq 'deepseek_go' -and [string]$planner.model_id -ceq 'opencode-go/deepseek-v4.1-flash' -and [string]$planner.provider -ceq 'opencode-go' -and [string]$planner.tier -ceq 'T2') 'pmc-policy-planner-primary-deepseek-t2'
+Assert-PMC ([string]$planner.primary -ceq 'hy4' -and [string]$planner.model_id -ceq 'opencode-go/hy4-flash-free' -and [string]$planner.provider -ceq 'opencode-go' -and [string]$planner.tier -ceq 'T1') 'pmc-policy-planner-primary-hy4-t1'
 Assert-PMC (([string]$planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and ([string]$planner.fallback -ceq 'luna') -and (-not [bool]$planner.fallback_requires_capability_proof)) 'pmc-planner-T2-Luna-availability-fallback-with-independent-no-start-proof'
-Assert-PMC ([string]$policy.role_profiles.build.default_model -ceq 'deepseek_go' -and (@($policy.role_profiles.build.admissible_tiers) -contains 'T2')) 'pmc-build-role-deepseek-t2'
+Assert-PMC ([string]$policy.role_profiles.build.default_model -ceq 'hy4' -and (@($policy.role_profiles.build.admissible_tiers) -contains 'T1')) 'pmc-build-role-hy4-t1'
 Assert-PMC (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build') 'pmc-haiku-not-admissible-for-planner-build'
 Assert-PMC ([string]$policy.role_profiles.'engineering-advisor'.default_model -ceq 'claude_sonnet' -and [string]$policy.role_profiles.'engineering-advisor'.default_tier -ceq 'T3') 'pmc-advisor-sonnet-t3'
-Assert-PMC ([string]$policy.role_profiles.tester.default_model -ceq 'luna' -and [string]$policy.role_profiles.tester.default_tier -ceq 'T1' -and [string]$policy.role_profiles.tester.deterministic_tier -ceq 'T0') 'pmc-tester-T0-deterministic-T1-LLM'
+Assert-PMC ([string]$policy.role_profiles.tester.default_model -ceq 'hy4' -and [string]$policy.role_profiles.tester.default_tier -ceq 'T1' -and [string]$policy.role_profiles.tester.deterministic_tier -ceq 'T0') 'pmc-tester-T0-deterministic-T1-LLM'
 
-Assert-PMC (([string]$policy.tiers.T1.primary -ceq 'luna') -and ([string]$policy.tiers.T1.alternatives[0] -ceq 'mimo')) 'pmc-T1-luna-mimo-order'
+Assert-PMC (([string]$policy.tiers.T1.primary -ceq 'hy4') -and ([string]$policy.tiers.T1.alternatives[0] -ceq 'mimo')) 'pmc-T1-hy4-mimo-order'
 Assert-PMC (([string]$policy.tiers.T2.primary -ceq 'luna') -and ([string]$policy.tiers.T2.alternatives[0] -ceq 'deepseek_go') -and ([string]$policy.tiers.T2.alternatives[1] -ceq 'muse') -and ([string]$policy.tiers.T2.alternatives[2] -ceq 'claude_haiku')) 'pmc-T2-luna-deepseek_go-muse-haiku-order'
 Assert-PMC (([string]$policy.tiers.T3.primary -ceq 'claude_sonnet') -and ([string]$policy.tiers.T3.fallback -ceq 'terra')) 'pmc-T3-sonnet-terra-order'
 Assert-PMC (([string]$policy.tiers.T4.primary -ceq 'claude_opus') -and ([string]$policy.tiers.T4.fallback -ceq 'sol') -and (@($policy.tiers.T4.alternatives) -notcontains 'muse') -and (@($policy.tiers.T4.alternatives) -notcontains 'deepseek_go')) 'pmc-T4-opus-sol-same-tier-only-T2-recovery-described-separately'
@@ -58,7 +59,7 @@ Assert-PMC (([string]$policy.models.deepseek_go.model_id -like 'opencode-go/*') 
 Assert-PMC ((-not [bool]$policy.models.deepseek.enabled) -and ([string]$policy.models.deepseek.availability_status -ceq 'disabled')) 'pmc-deepseek-console-remains-disabled'
 
 $example = Read-JsoncFile (Join-Path $repo 'models.example.jsonc')
-Assert-PMC ([string]$example.planner -ceq 'opencode-go/deepseek-v4.1-flash') 'pmc-example-planner-deepseek-go'
+Assert-PMC ([string]$example.planner -ceq 'opencode-go/hy4-flash-free') 'pmc-example-planner-hy4'
 Assert-PMC ([string]$example.cheap -ceq 'openai/gpt-6-luna') 'pmc-example-cheap-luna'
 Assert-PMC ([string]$example.strong -ceq 'claude-agent/sonnet' -and [string]$example.frontier -ceq 'claude-agent/opus') 'pmc-example-strong-sonnet-frontier-opus'
 $advisorFrontmatter = [IO.File]::ReadAllText((Join-Path $repo 'source\agents\engineering-advisor.md'), [Text.Encoding]::UTF8)
@@ -94,7 +95,7 @@ foreach ($adapter in @(
 $localModels = Join-Path $repo 'models.jsonc'
 if (Test-Path -LiteralPath $localModels -PathType Leaf) {
     $local = Read-JsoncFile $localModels
-    Assert-PMC ([string]$local.planner -ceq 'opencode-go/deepseek-v4.1-flash') 'pmc-local-models-planner-deepseek-go'
+    Assert-PMC (-not [string]::IsNullOrWhiteSpace([string]$local.planner)) 'pmc-local-models-planner-user-override-preserved'
     Assert-PMC ([string]$local.cheap -ceq 'openai/gpt-6-luna') 'pmc-local-models-cheap-luna'
     Assert-PMC ([string]$local.strong -ceq 'claude-agent/sonnet' -and [string]$local.frontier -ceq 'claude-agent/opus') 'pmc-local-models-strong-sonnet-frontier-opus'
 } else {
@@ -107,7 +108,7 @@ function Render-Template([string]$Name) {
     $r = $raw.Replace('{{MODEL_PLANNER}}', [string]$example.planner)
     $r = $r.Replace('{{MODEL_CHEAP}}', [string]$example.cheap)
     $r = $r.Replace('{{MODEL_STRONG}}', [string]$example.strong)
-    $r = $r.Replace('{{MODEL_FREE}}', 'openai/gpt-6-luna')
+    $r = $r.Replace('{{MODEL_FREE}}', 'opencode-go/hy4-flash-free')
     $r = $r.Replace('{{HOME}}', 'C:/Users/example')
     return $r
 }
@@ -118,16 +119,16 @@ foreach ($tmpl in @('opencode.v2.json.tmpl', 'opencode.v1.json.tmpl')) {
     Assert-PMC (-not ($raw -match '(?m)^  "model": "\{\{MODEL_PLANNER\}\}"')) ("pmc-$tag-global-model-not-planner-token")
     $doc = (Render-Template $tmpl) | ConvertFrom-Json
     $blocks = if ($null -ne $doc.agents) { $doc.agents } else { $doc.agent }
-    Assert-PMC ([string]$doc.model -ceq 'opencode-go/deepseek-v4.1-flash') ("pmc-$tag-global-model-deepseek-go")
-    Assert-PMC ([string]$blocks.build.model -ceq 'opencode-go/deepseek-v4.1-flash') ("pmc-$tag-build-agent-deepseek-go")
+    Assert-PMC ([string]$doc.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-global-model-hy4")
+    Assert-PMC ([string]$blocks.build.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-build-agent-hy4")
     Assert-PMC ([string]$doc.default_agent -ceq 'build') ("pmc-$tag-default-agent-build")
     Assert-PMC ([string]$blocks.title.model -ceq 'openai/gpt-6-luna') ("pmc-$tag-title-agent-luna-not-haiku")
     Assert-PMC ([string]$blocks.coder.model -ceq 'openai/gpt-6-luna') ("pmc-$tag-T2-coder-luna")
     Assert-PMC ([string]$blocks.'frontend-engineer'.model -ceq 'openai/gpt-6-luna') ("pmc-$tag-T2-engineering-agent-luna")
-    Assert-PMC ([string]$blocks.researcher.model -ceq 'openai/gpt-6-luna') ("pmc-$tag-researcher-starts-T1")
-    Assert-PMC ([string]$blocks.'docs-manager'.model -ceq 'openai/gpt-6-luna') ("pmc-$tag-docs-manager-starts-T1")
-    Assert-PMC ([string]$blocks.explorer.model -ceq 'openai/gpt-6-luna') ("pmc-$tag-explorer-starts-T1")
-    Assert-PMC ([string]$blocks.tester.model -ceq 'openai/gpt-6-luna') ("pmc-$tag-tester-LLM-default-T1")
+    Assert-PMC ([string]$blocks.researcher.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-researcher-starts-T1")
+    Assert-PMC ([string]$blocks.'docs-manager'.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-docs-manager-starts-T1")
+    Assert-PMC ([string]$blocks.explorer.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-explorer-starts-T1")
+    Assert-PMC ([string]$blocks.tester.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-tester-LLM-default-T1")
     if ($null -ne $blocks.PSObject.Properties['engineering-advisor']) {
         Assert-PMC ([string]$blocks.'engineering-advisor'.model -ceq 'claude-agent/sonnet') ("pmc-$tag-advisor-sonnet-T3")
     }

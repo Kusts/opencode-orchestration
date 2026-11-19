@@ -55,7 +55,7 @@ histórica, sem efeito).
   `automation-engineer`, `infra-engineer`, além dos papéis de planning
   `requirements-analyst`, `product-designer` e `skeptic`.
   Escala horizontal: evidência, volume e especialização delimitada.
-- Planner `build` mantém `opencode-go/deepseek-v4.1-flash` como primário T2; a política autoriza o candidato same-tier Luna (`openai/gpt-6-luna`) somente para indisponibilidade com prova independente de não-início.
+- Planner `build` mantém `opencode-go/hy4-flash-free` como primário T1; Luna (`openai/gpt-6-luna`) é candidato de disponibilidade same-tier somente com prova independente de não-início. Sem cadeia T1 genérica nem promoção para T2/T3/T4.
   A recuperação automática completa continua BLOCKED: o caminho nativo seguro sem duplicação não está comprovado. Em 2026-11-16, `opencode run --session <id> --model <m>` sem mensagem falhou com “You must provide a message”; não repetir o turno nem criar segundo Planner/supervisor.
   O modelo global e `agents.build.model` permanecem DeepSeek Go; outros agentes não herdam Luna.
   O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
@@ -67,7 +67,7 @@ histórica, sem efeito).
 - Elegibilidade de substituição por tier (a lista define candidatos, não autoriza
   retry por si só). O protocolo Planner-mediado comprovado está descrito em
   **Fallback nativo mediado pelo Planner** abaixo:
-  - **T1:** `openai/gpt-6-luna` → `opencode/mimo-v2.6-flash-free` (mesmo tier apenas).
+  - **T1:** `opencode-go/hy4-flash-free` → `opencode/mimo-v2.6-flash-free` (mesmo tier apenas).
   - **T2 geral:** candidatos em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor` → `claude-agent/haiku` → `openai/gpt-6-luna`. Capacidade Claude local e prova observada de no-start são condições; caller `NoExecutionStarted=true` não prova não-início.
     `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. A decisão datada de 2026-11-04 que selecionava DeepSeek Go como primário T2 é histórica/superada pela policy vigente; ZDR segue `expired-unconfirmed` (não envie dados sensíveis cuja proteção exija ZDR).
   - **T3:** `claude-agent/sonnet` → `openai/gpt-6.1-terra`; candidatos de recuperação T2 somente para papéis admissíveis a T2, em ordem `opencode-go/deepseek-v4.1-flash` → `opencode-go/muse-spark-1.3-contributor`. Engineering-advisor é T3-only.
@@ -95,8 +95,8 @@ histórica, sem efeito).
   - Taxonomia `OrchestrationProviderError` (exatamente 8 classes): `RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, `PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID`, `EXECUTION_UNKNOWN`. `RATE_LIMIT`, `QUOTA_EXCEEDED`, `MODEL_UNAVAILABLE` e `PROVIDER_UNAVAILABLE` só são elegíveis a fallback com prova observada de não-início. `PROVIDER_ERROR`, `AUTH_OR_PERMISSION_ERROR`, `REQUEST_INVALID` e `EXECUTION_UNKNOWN` não autorizam fallback. Os triggers legados `MODEL_ERROR`, `SERVICE_UNAVAILABLE` e `OFFLINE` são mapeados para essas classes; não fazem parte da taxonomia atual.
   - **Evidência nativa registrada (limitada):** `evidence/mission-2026-11-13/fallback-t1-proof.json` e `fallback-t2-proof.json` — dispatch nativo → erro `tool.execution` sem sessão filha → decisão → novo `subagent` → sessão filha com `observed_model` correto (T1 MiMo `094d08b2ceee4855a4cfa0074987a959`, T2 DeepSeek `2e47d6c042cb436babfb20e46139299d`); `evidence/mission-2026-11-13/native-override-2.3.0.json` comprova override de modelo em 2.3.0. **Limitação:** o primário falho foi `openai/does-not-exist` (sintético), não falha real 429/quota/503 de Luna; 429/quota/503 têm apenas cobertura sintética de testes. Cadeias medidas: coder complex T3 Sonnet → Terra → DeepSeek Go → Muse; reviewer high T3 Sonnet → Terra; security-reviewer critical e architect high T3 Sonnet → Terra. Opus → Sol é candidato de policy coberto por testes, sem transição real; Astra não executado.
 - Implementacao nativa atual: o Planner e a propria sessao `build` (raiz do run), com
-  modelo primario `opencode-go/deepseek-v4.1-flash` definido por `build.model` no `opencode.json`
-  (template: `{{MODEL_PLANNER}}`); o modelo global permanece DeepSeek Go. Workers sao subagents
+  modelo primario `opencode-go/hy4-flash-free` definido por `build.model` no `opencode.json`
+  (template: `{{MODEL_PLANNER}}`); o modelo global usa hy4. Workers sao subagents
   filhos da sessao raiz. O Kernel liga a raiz (`bind-session`), a solta (`detach-session`)
   antes de ligar cada worker e registra model-attempt somente para filhos observados com
   `parent_session_id` igual a raiz. O dispatch externo por `opencode run` foi removido:
@@ -618,12 +618,11 @@ exigido apenas em leitura.
   `DIRECT_VERIFIED`.
 - Especialistas nunca criam subagentes (`experimental.subagent_depth: 1` no
   `opencode.json` + `permissions: [{subagent, *, deny}]` nos agentes). Hierarquia rasa sempre.
-- Tester valida sem modificar a aplicação (`permissions` sem `edit` + `shell`
-  allow-default com denies de destruição/elevação/mutação Git e `ask` de
-  deploy/publish).
-- Debugger diagnostica sem modificar a aplicação (`permissions` sem `edit` + `shell`
-  allow-default com denies de destruição/elevação/mutação Git e `ask` de
-  deploy/publish).
+- Tester valida sem modificar a aplicação conforme o papel (`edit: deny`);
+  shell irrestrito não é barreira técnica contra escrita via comando.
+- Debugger diagnostica sem modificar a aplicação conforme o papel
+  (`edit: deny`); shell irrestrito não é barreira técnica contra escrita via
+  comando.
 - Reviewer é read-only e independente; ignora estilo sem impacto.
 - Architect é advisor: não implementa, não edita, não coordena workers; a
   decisão final é do Planner.

@@ -16,7 +16,7 @@ function Assert-V14([bool]$Condition,[string]$Name) {
 }
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-V14 ($p.Status -eq 'POLICY_LOADED') 'policy-loads'
-Assert-V14 ($p.PolicyVersion -eq '1.5.0') 'policy-v1.5'
+Assert-V14 ($p.PolicyVersion -eq '1.6.0') 'policy-v1.6'
 $pol = $p.Policy
 $expectedProviders = @{
     'mimo' = @{ Provider='opencode'; Model='opencode/mimo-v2.6-flash-free' }
@@ -38,7 +38,7 @@ foreach ($modelName in $expectedProviders.Keys) {
 # Disabled legacy Console DeepSeek must not be selected instead of Go DeepSeek.
 Assert-V14 ($pol.models.deepseek.enabled -eq $false -and
     $pol.models.deepseek.model_id -eq 'opencode/deepseek-v4.1-flash-free') 'legacy-console-deepseek-disabled'
-Assert-V14 ($pol.tiers.T1.primary -eq 'luna') 'T1-luna'
+Assert-V14 ($pol.tiers.T1.primary -eq 'hy4') 'T1-hy4'
 Assert-V14 ($pol.tiers.T1.alternatives -contains 'mimo') 'T1-mimo-fallback'
 Assert-V14 ($pol.models.mimo.model_id -eq 'opencode/mimo-v2.6-flash-free') 'mimo-openCode-console-id'
 Assert-V14 ($pol.tiers.T2.primary -eq 'luna') 'T2-luna-primary'
@@ -54,7 +54,7 @@ Assert-V14 ([bool]$pol.cost_policy.astra_requires_exceptional_authorization -eq 
 Assert-V14 ([bool]$pol.models.astra.cost_profile.exceptional_budget_required -eq $true) 'astra-cost-profile-exceptional-budget-required'
 Assert-V14 ([bool]$pol.models.astra.cost_profile.requires_authorization -eq $false) 'astra-no-generic-per-call-auth'
 Assert-V14 (@($pol.advisor.exceptional_conditions) -contains 'budget_authorized') 'advisor-exceptional-conditions-include-budget-authorized'
-Assert-V14 ($pol.planner.primary -eq 'deepseek_go' -and $pol.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and $pol.planner.provider -eq 'opencode-go' -and $pol.planner.tier -eq 'T2' -and [string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') 'planner-T2-Luna-availability-fallback-with-independent-no-start-proof'
+Assert-V14 ($pol.planner.primary -eq 'hy4' -and $pol.planner.model_id -eq 'opencode-go/hy4-flash-free' -and $pol.planner.provider -eq 'opencode-go' -and $pol.planner.tier -eq 'T1' -and [string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') 'planner-T1-Luna-availability-candidate-requires-independent-no-start-proof'
 Assert-V14 ($pol.role_profiles.tester.admissible_tiers -contains 'T1') 'tester-T1-allowed'
 Assert-V14 ($pol.models.deepseek_go.model_id -eq 'opencode-go/deepseek-v4.1-flash') 'deepseek-Go-not-Console'
 Assert-V14 ([bool]$pol.models.deepseek_go.enabled -eq $true -and [string]$pol.models.deepseek_go.availability_status -eq 'active') 'deepseek-go-operator-enabled-active'
@@ -62,10 +62,12 @@ Assert-V14 ([string]$pol.models.deepseek_go.data_policy.zdr_status -eq 'expired-
 Assert-V14 ([string]$pol.models.claude_haiku.resolution_status -eq 'runtime-unverified' -and [string]$pol.models.claude_sonnet.resolution_status -eq 'runtime-unverified' -and [string]$pol.models.claude_opus.resolution_status -eq 'runtime-unverified' -and [string]$pol.models.claude_fable.resolution_status -eq 'runtime-unverified') 'alias-resolution-runtime-unverified'
 
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $sPlanner.selected_provider -eq 'opencode-go') 'planner-runtime-deepseek-T2'
+Assert-V14 ($sPlanner.Tier -eq 'T1' -and $sPlanner.CatalogModel -eq 'opencode-go/hy4-flash-free' -and $sPlanner.selected_provider -eq 'opencode-go') 'planner-runtime-hy4-T1'
 # T2 primary Luna: catalog default; DeepSeek/Muse/Haiku remain ordered candidates.
 $catT2 = Resolve-CatalogModel -Tier 'T2' -IgnoreUserConfig $true
 Assert-V14 ($catT2.CatalogModel -eq 'openai/gpt-6-luna' -and $catT2.Provider -eq 'openai') 'T2-catalog-default-luna-provider'
+$catT1 = Resolve-CatalogModel -Tier 'T1' -IgnoreUserConfig $true
+Assert-V14 ($catT1.CatalogModel -eq 'opencode-go/hy4-flash-free' -and $catT1.Provider -eq 'opencode-go') 'T1-catalog-default-hy4-provider'
 $fcT2 = @($catT2.FallbackCandidates)
 Assert-V14 (($fcT2 -contains 'opencode-go/deepseek-v4.1-flash') -and ($fcT2 -contains 'opencode-go/muse-spark-1.3-contributor') -and ([Array]::IndexOf($fcT2,'opencode-go/deepseek-v4.1-flash') -lt [Array]::IndexOf($fcT2,'opencode-go/muse-spark-1.3-contributor'))) 'T2-candidates-deepseek-before-muse'
 Assert-V14 ([string]$pol.role_profiles.coder.default_model -eq 'luna' -and [string]$pol.role_profiles.'frontend-engineer'.default_model -eq 'luna') 'T2-roles-default-luna'
@@ -115,9 +117,11 @@ Assert-V14 (([string]$pol.tiers.T3.description -match 'only') -and ([string]$pol
 Assert-V14 (([string]$pol.tiers.T4.description -match 'Opus') -and ([string]$pol.tiers.T4.description -match 'Sol') -and ([string]$pol.tiers.T4.description -match 'DeepSeek') -and ([string]$pol.tiers.T4.description -match 'Muse') -and ([string]$pol.tiers.T4.description -match 'audit-only')) 'T4-description-Opus-Sol-plus-audit-only-T2-candidates'
 
 $sTesterT1 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -Risk 'low' -RequiresLlm $true -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'openai/gpt-6-luna') 'tester-trivial-LLM-uses-T1'
+Assert-V14 ($sTesterT1.Tier -eq 'T1' -and $sTesterT1.CatalogModel -eq 'opencode-go/hy4-flash-free') 'tester-trivial-LLM-uses-T1'
 $sT1 = Resolve-OrchestrationModelSelection -AgentName 'explorer' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-$fT1 = Resolve-OrchestrationModelFallback -RequestedSelection $sT1 -FailedModel 'openai/gpt-6-luna' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+$t1Fallback = Resolve-OrchestrationModelFallback -RequestedSelection $sT1 -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+Assert-V14 ($t1Fallback.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $t1Fallback.FallbackModel -eq $null -and $t1Fallback.CandidateModel -eq 'opencode/mimo-v2.6-flash-free' -and $t1Fallback.FallbackTier -eq 'T1' -and -not [bool]$t1Fallback.IsAuthorized) 'T1-mimo-same-tier-no-start-proof-hold'
+$fT1 = Resolve-OrchestrationModelFallback -RequestedSelection $sT1 -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT1.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fT1.FallbackModel -eq $null -and $fT1.CandidateModel -eq 'opencode/mimo-v2.6-flash-free') 'T1-mimo-order-audit-only-hold'
 $sT2 = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $fT2 = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -ClaudeAgentProven $true -IgnoreUserConfig $true

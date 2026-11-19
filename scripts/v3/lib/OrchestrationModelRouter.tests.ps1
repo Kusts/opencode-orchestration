@@ -49,10 +49,11 @@ $selUnknown = Resolve-OrchestrationModelSelection -AgentName 'unknown-intruder' 
 Assert-Router ($selUnknown.Status -eq 'REJECTED') "A.2: Agente desconhecido e rejeitado"
 Assert-Router ($selUnknown.IsCompliant -eq $false) "A.2: Agente desconhecido nao e compliant"
 
-# A.3 Planner (build): DeepSeek Go T2 only; no automatic model fallback.
+# A.3 Planner (build): Hy4 T1 primary; Luna availability candidate only with independent no-start proof.
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-Router ($selPlanner.Tier -eq 'T2') "A.3: Planner 'build' alocado em Tier T2"
-Assert-Router ($selPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "A.3: Planner 'build' seleciona DeepSeek Go canonico"
+Assert-Router ($selPlanner.Tier -eq 'T1') "A.3: Planner 'build' alocado em Tier T1"
+Assert-Router ($selPlanner.CatalogModel -eq 'opencode-go/hy4-flash-free') "A.3: Planner 'build' seleciona Hy4 canonico"
+Assert-Router ($selPlanner.ModelToken -eq 'MODEL_PLANNER') "A.3: Planner usa MODEL_PLANNER"
 Assert-Router ($selPlanner.selected_provider -eq 'opencode-go') "A.3: Planner 'build' fica no provider OpenCode Go"
 
 # A.4 Reviewer: Admissibilidade, escalonamento e proibições
@@ -136,11 +137,13 @@ Assert-Router ($selAdvDeadlockAuth.Tier -eq 'T3') "A.7: Advisor com recibo arbit
 Assert-Router ($selAdvDeadlockAuth.CatalogModel -eq 'claude-agent/sonnet') "A.7: Advisor T3 canonico e Sonnet"
 Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_STRONG') "A.7: Advisor T3 usa token distinto MODEL_STRONG"
 
-# A.8 Explorer e Docs Manager: T1 GPT-6 Luna
+# A.8 Explorer high/complex selection may use T2; default T1 is Hy4.
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'high' -Complexity 'complex' -IgnoreUserConfig $true
 Assert-Router ($selExp.Tier -in @('T0', 'T1', 'T2')) "A.8: Explorer restrito a T0..T2"
 Assert-Router ($selExp.Tier -notin @('T3', 'T4')) "A.8: Explorer proibido em T3 e T4"
-Assert-Router ($selExp.CatalogModel -eq 'openai/gpt-6-luna') "A.8: Explorer canonico alocado em T1/T2"
+Assert-Router ($selExp.CatalogModel -eq 'openai/gpt-6-luna') "A.8: Explorer high/complex usa selecao T2"
+$selExpDefault = Resolve-OrchestrationModelSelection -AgentName 'explorer' -IgnoreUserConfig $true
+Assert-Router ($selExpDefault.Tier -eq 'T1' -and $selExpDefault.CatalogModel -eq 'opencode-go/hy4-flash-free') "A.8: Explorer default seleciona Hy4 T1"
 
 # A.9 Tester: T0 Deterministico vs T2 com LLM
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -IgnoreUserConfig $true
@@ -149,10 +152,10 @@ Assert-Router ($selTesterT0.CatalogModel -eq 'none (deterministic)') "A.9: Teste
 Assert-Router ($selTesterT0.ModelToken -eq 'NONE_DIRECT_VERIFIED') "A.9: Tester T0 usa token NONE_DIRECT_VERIFIED"
 Assert-Router ($selTesterT0.EstimatedCostMultiplier -eq 0.0) "A.9: Tester T0 tem custo zero"
 
-$selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -RequiresLlm $true -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-Router ($selTesterLlm.Tier -eq 'T2') "A.9: Tester com RequiresLlm seleciona tier autorizado T2"
-Assert-Router ($selTesterLlm.CatalogModel -eq 'openai/gpt-6-luna') "A.9: Tester LLM canonico seleciona Luna"
-Assert-Router ($selTesterLlm.ModelToken -eq 'MODEL_CHEAP') "A.9: Tester com LLM usa MODEL_CHEAP"
+$selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -Risk 'low' -Complexity 'simple' -RequiresLlm $true -NativeModelOverrideProven $true -IgnoreUserConfig $true
+Assert-Router ($selTesterLlm.Tier -eq 'T1') "A.9: Tester com RequiresLlm seleciona tier autorizado T1"
+Assert-Router ($selTesterLlm.CatalogModel -eq 'opencode-go/hy4-flash-free') "A.9: Tester LLM canonico seleciona Hy4"
+Assert-Router ($selTesterLlm.ModelToken -eq 'MODEL_FREE') "A.9: Tester com LLM usa MODEL_FREE"
 Assert-Router ($selTesterLlm.ProviderCostAuthorized -eq $true) "A.9: Tester T2 e autorizado"
 
 # A.10 Autorizacao de Custo T4 vs Autorizacao Excepcional de Astra
@@ -261,7 +264,7 @@ Assert-Router ($null -ne $examplePath -and (Test-Path -LiteralPath $examplePath 
 $rawExample = Get-Content -LiteralPath $examplePath -Raw
 $cleanExample = $rawExample -replace '(?m)^\s*//.*$', ''
 $parsedExample = ConvertFrom-Json -InputObject $cleanExample
-Assert-Router ($parsedExample.planner -eq 'opencode-go/deepseek-v4.1-flash') "B.1: models.example.jsonc default planner e DeepSeek Go T2"
+Assert-Router ($parsedExample.planner -eq 'opencode-go/hy4-flash-free') "B.1: models.example.jsonc default planner e Hy4 T1"
 Assert-Router ($parsedExample.cheap -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default cheap e Luna"
 Assert-Router ($parsedExample.strong -eq 'claude-agent/sonnet') "B.1: models.example.jsonc default strong e alias Sonnet T3"
 Assert-Router ($parsedExample.frontier -eq 'claude-agent/opus') "B.1: models.example.jsonc default frontier e alias Opus T4"
@@ -285,6 +288,9 @@ Assert-Router ($selCustomReviewer.CatalogModel -eq 'openai/gpt-6.1-terra') "B.2:
 Assert-Router ($selCustomReviewer.ModelToken -eq 'MODEL_STRONG') "B.2: Token MODEL_STRONG preservado com override de usuario"
 
 # B.3 Suporte a overrides legados via variaveis de ambiente
+$catDefaults = Get-OrchestrationUserConfigCatalog -IgnoreUserConfig $true
+Assert-Router ($catDefaults['T1'].CatalogModel -eq 'opencode-go/hy4-flash-free') "B.3: Catalogo T1 canonico usa Hy4"
+Assert-Router ($catDefaults['T2'].CatalogModel -eq 'openai/gpt-6-luna') "B.3: Catalogo T2 canonico preserva Luna"
 $env:MODEL_CHEAP = 'opencode/space-bunny-free'
 $env:MODEL_STRONG = 'openai/gpt-6.1-terra-custom'
 $catEnv = Get-OrchestrationUserConfigCatalog -IgnoreUserConfig $false

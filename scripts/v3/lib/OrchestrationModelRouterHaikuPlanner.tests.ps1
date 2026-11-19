@@ -2,7 +2,7 @@
 .SYNOPSIS
     Claude alias/model-tier routing contract (policy v1.4; deterministic, no provider calls).
 .DESCRIPTION
-    Planner/build primary is opencode-go/deepseek-v4.1-flash (T2, DeepSeek Go-only). Covers provider
+    Planner/build primary is opencode-go/hy4-flash-free (T1). Covers provider
     registration, closed Claude dispatch-alias identity (no resolved_model,
     runtime-unverified, catalog inventory provenance only), T2 Luna->DeepSeek Go->Muse->Haiku,
     T3 Sonnet->Terra, T4 Opus->Sol, technical fallbacks held absent independent
@@ -28,7 +28,7 @@ function Assert-HP([bool]$Condition, [string]$Name) {
 
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-HP ($p.Status -eq 'POLICY_LOADED') 'hp-policy-loads'
-Assert-HP ($p.PolicyVersion -eq '1.5.0') 'hp-policy-stays-v1.5'
+Assert-HP ($p.PolicyVersion -eq '1.6.0') 'hp-policy-stays-v1.5'
 $pol = $p.Policy
 
 # 1. Provider registration (single catalog).
@@ -66,18 +66,18 @@ Assert-HP ((-not [bool]$aliasTamper.Matches) -and ([string]$aliasTamper.Reason -
 $aliasUnknown = Resolve-ClaudeAgentAlias -AliasModelId 'claude-agent/unknown' -PolicyAlias 'unknown' -PolicyModelId 'claude-agent/unknown'
 Assert-HP ((-not [bool]$aliasUnknown.Matches) -and ([string]$aliasUnknown.Reason -ceq 'CLAUDE_UNKNOWN_ALIAS')) 'hp-alias-unknown-fail-closed'
 
-# 3. Planner/build is DeepSeek Go T2 and has no automatic model fallback.
-Assert-HP ([string]$pol.planner.primary -eq 'deepseek_go' -and [string]$pol.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and `
-    [string]$pol.planner.provider -eq 'opencode-go' -and [string]$pol.planner.tier -eq 'T2') 'hp-planner-primary-deepseek-T2'
-Assert-HP (([string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and (-not [bool]$pol.planner.fallback_requires_capability_proof)) 'hp-planner-T2-Luna-availability-fallback-with-independent-no-start-proof'
-Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'deepseek_go') 'hp-build-profile-deepseek'
+# 3. Planner/build uses Hy4 T1 with Luna as a held same-tier availability candidate.
+Assert-HP ([string]$pol.planner.primary -eq 'hy4' -and [string]$pol.planner.model_id -eq 'opencode-go/hy4-flash-free' -and `
+    [string]$pol.planner.provider -eq 'opencode-go' -and [string]$pol.planner.tier -eq 'T1') 'hp-planner-primary-hy4-T1'
+Assert-HP (([string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and (-not [bool]$pol.planner.fallback_requires_capability_proof)) 'hp-planner-T1-Luna-availability-fallback-with-independent-no-start-proof'
+Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'hy4') 'hp-build-profile-hy4'
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-HP ($sPlanner.Tier -eq 'T2' -and $sPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash' -and $sPlanner.selected_provider -eq 'opencode-go') 'hp-planner-selection-deepseek-T2'
+Assert-HP ($sPlanner.Tier -eq 'T1' -and $sPlanner.CatalogModel -eq 'opencode-go/hy4-flash-free' -and $sPlanner.selected_provider -eq 'opencode-go') 'hp-planner-selection-hy4-T1'
 
 # 4. Planner failure has no fallback ladder; caller booleans do not authorize replay.
-$fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
-Assert-HP ($fbPlanner.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fbPlanner.FallbackModel -and $fbPlanner.CandidateModel -eq 'openai/gpt-6-luna' -and $fbPlanner.FallbackTier -eq 'T2' -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-T2-Luna-availability-candidate-held-no-replay'
-$fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
+$fbPlanner = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+Assert-HP ($fbPlanner.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fbPlanner.FallbackModel -and $fbPlanner.CandidateModel -eq 'openai/gpt-6-luna' -and $fbPlanner.FallbackTier -eq 'T1' -and -not [bool]$fbPlanner.IsAuthorized) 'hp-planner-T1-Luna-availability-candidate-held-no-replay'
+$fbPlannerTimeout = Resolve-OrchestrationModelFallback -RequestedSelection $sPlanner -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true
 Assert-HP ($fbPlannerTimeout.FallbackModel -eq $null -and -not [bool]$fbPlannerTimeout.IsAuthorized) 'hp-planner-timeout-no-replay'
 
 # 5. T2 generic chain Luna primary->DeepSeek Go->Muse->Haiku; ordered candidates remain audit-only HOLD.
@@ -94,7 +94,7 @@ $fT2Haiku = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedM
 Assert-HP ($fT2Haiku.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $null -eq $fT2Haiku.FallbackModel -and $fT2Haiku.CandidateModel -eq 'claude-agent/haiku') 'hp-T2-haiku-third-candidate-held'
 $fT2Exhausted = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'claude-agent/haiku' -AttemptedModels @('openai/gpt-6-luna','opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor','claude-agent/haiku') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-HP ($fT2Exhausted.Status -eq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fT2Exhausted.FallbackModel -and $null -eq $fT2Exhausted.CandidateModel -and (-not [bool]$fT2Exhausted.IsAuthorized)) 'hp-T2-alternatives-exhausted-after-primary'
-$fT2Timeout = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/deepseek-v4.1-flash' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
+$fT2Timeout = Resolve-OrchestrationModelFallback -RequestedSelection $sT2 -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'TIMEOUT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-HP ($null -eq $fT2Timeout.FallbackModel -and -not [bool]$fT2Timeout.IsAuthorized) 'hp-T2-timeout-never-replays'
 
 # 6. DeepSeek Go remains enabled as a T2 alternative (ZDR expired-unconfirmed, no renewal claim).

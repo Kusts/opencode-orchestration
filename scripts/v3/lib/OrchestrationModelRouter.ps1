@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 # Define standard model tiers
 $script:ModelTiers = @{
     'T0' = @{ Name = 'Deterministic'; RelativeCost = 0.0;  Description = 'Scripts, AST, ArtifactRef, deterministic execution' }
-    'T1' = @{ Name = 'UltraLight';    RelativeCost = 1.00; Description = 'Luna (openai) primary with free MiMo fallback; simple extraction or triage' }
+    'T1' = @{ Name = 'UltraLight';    RelativeCost = 0.01; Description = 'hy4 (opencode-go) primary with free MiMo fallback; simple extraction or triage' }
     'T2' = @{ Name = 'Economical';    RelativeCost = 0.10; Description = 'Flash/cheap models, standard coding and routine tasks' }
     'T3' = @{ Name = 'Capable';       RelativeCost = 1.00; Description = 'Intermediate capable models, complex refactoring and design' }
     'T4' = @{ Name = 'Frontier';      RelativeCost = 8.00; Description = 'Deep reasoning/frontier models, deadlocks and critical security' }
@@ -27,10 +27,10 @@ $script:ModelTiers = @{
 # Admissibility Matrix by agent role
 $script:AgentModelAdmissibility = @{
     'build' = @{
-        DefaultTier      = 'T2'
-        AdmissibleTiers  = @('T2', 'T3')
+        DefaultTier      = 'T1'
+        AdmissibleTiers  = @('T1', 'T2', 'T3')
         ProhibitedTiers  = @('T4')
-        ProhibitionNotes = 'Continuous T4 prohibited for Planner loop to prevent token exhaustion; rotation prohibited.'
+        ProhibitionNotes = 'Continuous T4 prohibited for Planner loop to prevent token exhaustion; rotation from the stable T1 primary is prohibited.'
     }
     'engineering-advisor' = @{
         DefaultTier      = 'T3'
@@ -145,7 +145,7 @@ $script:AgentModelAdmissibility = @{
 # Standard Model Catalog mapping tiers to catalog definitions and default authorization
 $script:DefaultModelCatalog = @{
     'T0' = @{ Token = 'NONE_DIRECT_VERIFIED'; CatalogModel = 'none (deterministic)';                    Provider = 'none';        Authorized = $true }
-    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'openai/gpt-6-luna';  Provider = 'openai'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
+    'T1' = @{ Token = 'MODEL_FREE';           CatalogModel = 'opencode-go/hy4-flash-free';  Provider = 'opencode-go'; Authorized = $true; AlternativeModel = 'opencode/mimo-v2.6-flash-free' }
     'T2' = @{ Token = 'MODEL_CHEAP';          CatalogModel = 'openai/gpt-6-luna'; Provider = 'openai'; Authorized = $true; AlternativeModel = 'opencode-go/deepseek-v4.1-flash'; AdditionalCandidates = @('opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku') }
     'T3' = @{ Token = 'MODEL_STRONG';         CatalogModel = 'claude-agent/sonnet';                  Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-terra' }
     'T4' = @{ Token = 'MODEL_FRONTIER';       CatalogModel = 'claude-agent/opus';                    Provider = 'claude-agent';  Authorized = $true; AlternativeModel = 'openai/gpt-6.1-sol'; ExceptionalModel = 'openai/gpt-6-astra' }
@@ -175,11 +175,14 @@ $script:ClaudeAgentDispatchAliasMap = @{
 # Recorded as catalog metadata only; dispatch never selects a variant here.
 $script:ClaudeAgentEffortVariants = @('low', 'medium', 'high', 'xhigh', 'max')
 
-# Availability/transport fault classes. A claude-agent substitute (Haiku/Sonnet/
+# Availability/transport fault classes. Legacy aliases MODEL_ERROR,
+# SERVICE_UNAVAILABLE and OFFLINE are retained for compatibility; they map to
+# eligible availability classes. PROVIDER_ERROR is excluded by the taxonomy.
+# A claude-agent substitute (Haiku/Sonnet/
 # Opus) and every tier escalation are policy-level availability routes only for
 # these reasons; capability/incapacity claims (VERIFIED_TASK_FAILURE) and
 # ambiguous outcomes (TIMEOUT) are NOT availability and never unlock them.
-$script:AvailabilityTriggerReasons = @('RATE_LIMIT', 'PROVIDER_ERROR', 'MODEL_UNAVAILABLE', 'MODEL_ERROR', 'SERVICE_UNAVAILABLE', 'QUOTA_EXCEEDED', 'OFFLINE')
+$script:AvailabilityTriggerReasons = @('RATE_LIMIT', 'QUOTA_EXCEEDED', 'MODEL_UNAVAILABLE', 'PROVIDER_UNAVAILABLE', 'MODEL_ERROR', 'SERVICE_UNAVAILABLE', 'OFFLINE')
 
 function Test-ClaudeAgentProviderAdmissible {
     <#
@@ -494,7 +497,7 @@ function Get-OrchestrationUserConfigCatalog {
     $policyRes = Get-OrchestrationModelRoutingPolicy -PolicyPath $PolicyPath
     $pol = if ($policyRes.Status -eq 'POLICY_LOADED') { $policyRes.Policy } else { $null }
 
-    $mT1 = 'openai/gpt-6-luna'
+    $mT1 = 'opencode-go/hy4-flash-free'
     if ($null -ne $pol -and $pol.tiers.T1 -and $pol.tiers.T1.primary) {
         $primaryT1 = [string]$pol.tiers.T1.primary
         if ($pol.models.$primaryT1 -and $pol.models.$primaryT1.model_id) { $mT1 = [string]$pol.models.$primaryT1.model_id }
@@ -659,7 +662,7 @@ function Resolve-CatalogModel {
     }
 
     $candidates = switch ($Tier) {
-        'T1' { @('openai/gpt-6-luna', 'opencode/mimo-v2.6-flash-free') }
+        'T1' { @('opencode-go/hy4-flash-free', 'opencode/mimo-v2.6-flash-free') }
         'T2' { @('openai/gpt-6-luna', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor', 'claude-agent/haiku') }
         'T3' { @('claude-agent/sonnet', 'openai/gpt-6.1-terra', 'opencode-go/deepseek-v4.1-flash', 'opencode-go/muse-spark-1.3-contributor') }
         'T4' { @('claude-agent/opus', 'openai/gpt-6.1-sol', 'openai/gpt-6-astra', 'claude-agent/fable') }
@@ -1380,7 +1383,7 @@ function Resolve-OrchestrationModelFallback {
         }
     }
 
-    # Planner may expose only the explicitly configured T2 Luna availability
+    # Planner may expose only the explicitly configured T1 Luna availability
     # candidate. This resolver never authorizes execution: independent
     # no-start evidence is required downstream. Generic build enumeration and
     # all T3/T4 candidates remain prohibited.
@@ -1388,7 +1391,7 @@ function Resolve-OrchestrationModelFallback {
         $plannerPolicy = if ($null -ne $policy) { $policy.planner } else { $null }
         $plannerPrimary = if ($plannerPolicy) { [string]$plannerPolicy.model_id } else { '' }
         $plannerFallback = if ($plannerPolicy) { [string]$plannerPolicy.fallback_model_id } else { '' }
-        if ($plannerPrimary -ceq 'opencode-go/deepseek-v4.1-flash' -and
+        if ($plannerPrimary -ceq 'opencode-go/hy4-flash-free' -and
             $origModel -ceq $plannerPrimary -and
             $plannerFallback -ceq 'openai/gpt-6-luna' -and
             $policy.planner.fallback -ceq 'luna' -and
@@ -1417,19 +1420,19 @@ function Resolve-OrchestrationModelFallback {
                 }
                 $validPlannerLuna = & $EvaluateCandidate $lunaCandidate
                 if ($null -ne $validPlannerLuna -and $validPlannerLuna.ModelId -ceq 'openai/gpt-6-luna' -and $validPlannerLuna.Provider -ceq 'openai') {
-                    return (& $BuildAuthorizedResult $validPlannerLuna.ModelId 'T2' 'Planner T2 Luna availability fallback; independent no-start proof required.' $false)
+                    return (& $BuildAuthorizedResult $validPlannerLuna.ModelId 'T1' 'Planner T1 Luna availability fallback; independent no-start proof required.' $false)
                 }
             }
         }
         if (($script:AvailabilityTriggerReasons -contains $normalizedTriggerReason) -and -not $NoExecutionStarted) {
-            & $RecordExclusion 'openai/gpt-6-luna' 'T2' 'INDEPENDENT_NO_START_PROOF_REQUIRED'
+            & $RecordExclusion 'openai/gpt-6-luna' 'T1' 'INDEPENDENT_NO_START_PROOF_REQUIRED'
         }
-        & $RecordExclusion 'opencode-go/deepseek-v4.1-flash' 'T2' 'PLANNER_NO_AUTOMATIC_FALLBACK'
+        & $RecordExclusion 'opencode-go/hy4-flash-free' 'T1' 'PLANNER_NO_AUTOMATIC_FALLBACK'
         return [pscustomobject]@{
             Status='EXHAUSTED_NO_ELIGIBLE_FALLBACK'; IsAuthorized=$false; FallbackModel=$null
             AuthorizedModel=$null; FallbackTier=$null; OriginalModel=$origModel
             OriginalProvider=$origProvider; FallbackProvider=$null; IsCrossProvider=$false
-            TriggerReason=$TriggerReason; Reason='Planner is DeepSeek Go-only (T2) with no automatic fallback (PLANNER_NO_AUTOMATIC_FALLBACK); generic T2 chain and T3/T4 never apply to build.'
+            TriggerReason=$TriggerReason; Reason='Planner T1 hy4 with no automatic fallback (PLANNER_NO_AUTOMATIC_FALLBACK); no generic T1 chain and no T2/T3/T4.'
             AuthorizationSource='ROUTER_POLICY'; ProviderCostAuthorized=$false
             AttemptsCount=[Math]::Max(1,$reallyAttempted.Count); IsDowngrade=$false
             ReallyAttemptedModels=@($reallyAttempted); PreventivelyExcluded=@($preventivelyExcluded)
@@ -2054,10 +2057,10 @@ function Resolve-OrchestrationModelSelection {
     $selectedTier = $admissibility.DefaultTier
     $reason = "Default tier '$selectedTier' for agent '$cleanAgent'."
 
-    # Planner is pinned to the registry's build model, classified T2.
+    # Planner is pinned to the registry's build model, classified T1.
     if ($cleanAgent -eq 'build') {
-        $selectedTier = 'T2'
-        $reason = 'Planner build is stable on its policy model under operational tier T2.'
+        $selectedTier = 'T1'
+        $reason = 'Planner build is stable on its policy model under tier T1.'
     }
     elseif ($cleanAgent -eq 'reviewer') {
         if ($Risk -eq 'low' -and $Complexity -in @('trivial','simple')) {
@@ -2347,10 +2350,10 @@ function Resolve-OrchestrationModelSelection {
         }
     }
     if ($cleanAgent -eq 'build') {
-        # Planner is policy-primary-only (T2, MODEL_PLANNER, no automatic fallback).
+        # Planner is policy-primary-only (T1, MODEL_PLANNER, no automatic fallback).
         # Never silently remap Planner to another model; never Sonnet;
         # build never routes to T4.
-        $plannerPrimaryId = 'opencode-go/deepseek-v4.1-flash'
+        $plannerPrimaryId = 'opencode-go/hy4-flash-free'
         $plannerPrimaryProv = 'opencode-go'
         try {
             if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.planner) {
@@ -2362,12 +2365,12 @@ function Resolve-OrchestrationModelSelection {
                 }
             }
         } catch { }
-        if ($plannerPrimaryId -cne 'opencode-go/deepseek-v4.1-flash') {
+        if ($plannerPrimaryId -cne 'opencode-go/hy4-flash-free') {
             return [pscustomobject]@{
                 Status                    = 'REJECTED'
                 DecisionStatus            = 'PLANNER_PRIMARY_MISMATCH'
-                Reason                    = "Planner policy primary is not the configured DeepSeek Go model ('$plannerPrimaryId')."
-                selection_reason          = "Planner policy primary is not the configured DeepSeek Go model ('$plannerPrimaryId')."
+                Reason                    = "Planner policy primary is not the configured hy4 model ('$plannerPrimaryId')."
+                selection_reason          = "Planner policy primary is not the configured hy4 model ('$plannerPrimaryId')."
                 Agent                     = $cleanAgent
                 requested_role            = $cleanAgent
                 Tier                      = $null
@@ -2375,7 +2378,7 @@ function Resolve-OrchestrationModelSelection {
                 ModelToken                = $null
                 selected_model_id         = $null
                 selected_provider         = 'none'
-                FallbackTier              = 'T2'
+                FallbackTier              = 'T1'
                 FallbackToken             = 'MODEL_PLANNER'
                 IsCompliant               = $false
                 Authorized                = $false

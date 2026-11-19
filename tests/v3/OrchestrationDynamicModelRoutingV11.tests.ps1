@@ -42,7 +42,7 @@ Write-Host "=== FASE 1: CATALOGO CONFIGURAVEL E PROVIDERS INDEPENDENTES ==="
 $policyRes = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-V11 ($policyRes.Status -eq 'POLICY_LOADED') "Politica canonica model-routing-policy.json carregada com sucesso"
 Assert-V11 ($policyRes.PolicyHash.Length -eq 64) "PolicyHash SHA-256 valido (64 hex characters): $($policyRes.PolicyHash)"
-Assert-V11 ($policyRes.PolicyVersion -eq '1.5.0') "PolicyVersion e 1.5.0"
+Assert-V11 ($policyRes.PolicyVersion -eq '1.6.0') "PolicyVersion e 1.6.0"
 
 $pol = $policyRes.Policy
 
@@ -68,7 +68,7 @@ foreach ($mId in @('openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6-astr
 
 # 1.4 Resolucao de catalogo dinamicamente atualizavel
 $cat = Get-OrchestrationUserConfigCatalog -IgnoreUserConfig $true
-Assert-V11 ($cat['T1'].CatalogModel -eq 'openai/gpt-6-luna') "T1 primario do catalogo e GPT-6 Luna"
+Assert-V11 ($cat['T1'].CatalogModel -eq 'opencode-go/hy4-flash-free') "T1 primario do catalogo e HY4 Flash Free"
 Assert-V11 ($cat['T2'].CatalogModel -eq 'openai/gpt-6-luna') "T2 primario do catalogo e Luna"
 Assert-V11 ($cat['T3'].CatalogModel -eq 'claude-agent/sonnet') "T3 primario do catalogo e Sonnet"
 Assert-V11 ($cat['T3'].AlternativeModel -eq 'openai/gpt-6.1-terra') "T3 fallback do catalogo e Terra"
@@ -77,18 +77,18 @@ Assert-V11 ($cat['T4'].AlternativeModel -eq 'openai/gpt-6.1-sol') "T4 fallback d
 
 Write-Host "=== FASE 2: MODEL ROUTER E SELECAO POR AGENTE/RISCO ==="
 
-# 2.1 Planner build: estavel em DeepSeek Go T2
+# 2.1 Planner build: estavel em HY4 Flash Free T1
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-V11 ($selPlanner.Tier -eq 'T2') "Planner 'build' seleciona Tier T2"
-Assert-V11 ($selPlanner.selected_model_id -eq 'opencode-go/deepseek-v4.1-flash') "Planner 'build' seleciona DeepSeek Go"
+Assert-V11 ($selPlanner.Tier -eq 'T1') "Planner 'build' seleciona Tier T1"
+Assert-V11 ($selPlanner.selected_model_id -eq 'opencode-go/hy4-flash-free') "Planner 'build' seleciona HY4 Flash Free"
 Assert-V11 ($selPlanner.selected_provider -eq 'opencode-go') "Planner 'build' opera no provider 'opencode-go'"
 Assert-V11 ($selPlanner.policy_hash -eq $policyRes.PolicyHash) "Decisao vincula policy_hash da versao canonica"
 
-# 2.2 Explorer e Docs Manager: T1 Luna
+# 2.2 Explorer e Docs Manager: T1 HY4 Flash Free
 $selExp = Resolve-OrchestrationModelSelection -AgentName 'explorer' -Risk 'low' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selExp.Tier -eq 'T1') "Explorer seleciona Tier T1"
-Assert-V11 ($selExp.selected_model_id -eq 'openai/gpt-6-luna') "Explorer seleciona GPT-6 Luna"
-Assert-V11 ($selExp.selected_provider -eq 'openai') "Explorer usa provider 'openai'"
+Assert-V11 ($selExp.selected_model_id -eq 'opencode-go/hy4-flash-free') "Explorer seleciona HY4 Flash Free"
+Assert-V11 ($selExp.selected_provider -eq 'opencode-go') "Explorer usa provider 'opencode-go'"
 
 # 2.3 Coder: T2 Luna por padrao, T3 Sonnet para complex
 $selCoder = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -99,15 +99,15 @@ $selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complex
 Assert-V11 ($selCoderRetry.Tier -eq 'T3') "Coder complex apos 1 falha escala para T3"
 Assert-V11 ($selCoderRetry.selected_model_id -eq 'claude-agent/sonnet') "Coder T3 seleciona Sonnet"
 
-# 2.4 Tester: T0 deterministico por default, T2 Luna se RequiresLlm
+# 2.4 Tester: T0 deterministico por default, T1 HY4 se RequiresLlm
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selTesterT0.Tier -eq 'T0') "Tester trivial seleciona T0 deterministico sem LLM"
 Assert-V11 ($selTesterT0.selected_model_id -eq 'none (deterministic)') "Tester T0 tem selected_model_id none"
 Assert-V11 ($selTesterT0.selected_provider -eq 'none') "Tester T0 tem selected_provider none"
 
-$selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -RequiresLlm $true -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-V11 ($selTesterLlm.Tier -eq 'T2') "Tester com RequiresLlm seleciona T2"
-Assert-V11 ($selTesterLlm.selected_model_id -eq 'openai/gpt-6-luna') "Tester com LLM seleciona Luna"
+$selTesterLlm = Resolve-OrchestrationModelSelection -AgentName 'tester' -RequiresLlm $true -Complexity 'simple' -Risk 'low' -NativeModelOverrideProven $true -IgnoreUserConfig $true
+Assert-V11 ($selTesterLlm.Tier -eq 'T1') "Tester com RequiresLlm seleciona T1"
+Assert-V11 ($selTesterLlm.selected_model_id -eq 'opencode-go/hy4-flash-free') "Tester com LLM seleciona HY4 Flash Free"
 
 # 2.5 Security-Reviewer: Sonnet T3; Opus T4 somente com prova kernel-owned; proibido T0/T1/T2
 $selSecUnauth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -234,8 +234,8 @@ Assert-V11 ($grantGate.status -eq 'JEV_ADVISORY_CANNOT_GRANT') "Status normativo
 # 6.2 Recibo do Router
 $receipt = Get-OrchestrationModelRouterReceipt -Selection $selPlanner
 Assert-V11 ($receipt.stage -eq 'model_routing') "Recibo gerado para stage model_routing"
-Assert-V11 ($receipt.catalog_model -eq 'opencode-go/deepseek-v4.1-flash') "Recibo registra modelo canonico"
-Assert-V11 ($receipt.tier -eq 'T2') "Recibo registra tier T2"
+Assert-V11 ($receipt.catalog_model -eq 'opencode-go/hy4-flash-free') "Recibo registra modelo canonico"
+Assert-V11 ($receipt.tier -eq 'T1') "Recibo registra tier T1"
 
 Write-Host "=========================================================="
 Write-Host "TOTAL: $total | PASSOU: $passed | FALHAS: 0"

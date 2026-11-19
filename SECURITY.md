@@ -23,10 +23,10 @@ veja [docs/PERMISSIONS.md](docs/PERMISSIONS.md) e o dono da configuração ativa
 
 ## Resumo da política
 
-- **Boundaries**: classes de permissão por agente (read-only /
-  writer-shell / writer-no-shell / validator-shell) e barreiras
-  runtime/prompt/planner-enforced. Workers nunca delegam
-  (`subagent_depth: 1`).
+- **Boundaries**: shell irrestrito (`"*": allow`) para os 19 workers, por
+  decisão explícita do usuário. A distinção de `edit` por papel, `task: deny`
+  e a hierarquia rasa (`subagent_depth: 1`) permanecem; `edit: deny` não
+  contém escrita realizada pelo shell.
 - **Credenciais**: o repo contém só nomes de chaves, nunca valores.
   Segredos nunca entram em git, instruções geradas, logs, relatórios ou
   telemetria. Em uso, credenciais vêm do ambiente do runtime.

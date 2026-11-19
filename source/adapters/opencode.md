@@ -60,7 +60,7 @@ histórica, sem efeito).
   suporta `{{MODEL_PLANNER}}` ou `{{MODEL_STRONG}}` sem mudar o
   comportamento. Não fixe modelo no perfil `build`; o default global permanece
   GLM Flash.
-- Free worker pool — `{{MODEL_FREE}}`: `explorer`, `researcher`,
+- Free worker pool — `{{MODEL_FREE}}` (hy4, OpenCode Go, T1; MiMo fallback): `explorer`, `researcher`,
   `tester`, `docs-manager` (T1 inicial; escala para T2 apenas quando necessário).
 - Cheap worker pool — `{{MODEL_CHEAP}}`: `coder`, `frontend-engineer`,
   `backend-engineer`, `database-engineer`, `ai-agent-engineer`,
@@ -458,10 +458,12 @@ com evidência.
 
 - Especialistas nunca criam subagentes (`subagent_depth: 1` no
   `opencode.json` + `task: deny` nos agentes). Hierarquia rasa sempre.
-- Tester valida sem modificar a aplicação (`edit: deny` + `bash` allow-default
-  com denies de destruição/elevação/mutação Git e `ask` de deploy/publish).
-- Debugger diagnostica sem modificar a aplicação (`edit: deny` + `bash` allow-default
-  com denies de destruição/elevação/mutação Git e `ask` de deploy/publish).
+- Tester valida sem modificar a aplicação conforme o papel (`edit: deny`);
+  shell irrestrito (`bash: "*": allow`) não é uma barreira técnica contra
+  escrita via comando.
+- Debugger diagnostica sem modificar a aplicação conforme o papel
+  (`edit: deny`); shell irrestrito (`bash: "*": allow`) não é uma barreira
+  técnica contra escrita via comando.
 - Reviewer é read-only e independente; ignora estilo sem impacto.
 - Architect é advisor: não implementa, não edita, não coordena workers; a
   decisão final é do Planner.

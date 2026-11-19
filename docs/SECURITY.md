@@ -5,19 +5,15 @@
 Classes e barreiras por agente (tabela 19 agentes × classe × barreira) são
 normativas em [PERMISSIONS.md](PERMISSIONS.md). Resumo:
 
-- **read-only** (explorer, researcher, reviewer, architect,
-  security-reviewer + 4 advisors de planning): `edit: deny`, `bash: deny` —
-  sem escrita, sem shell.
-- **writer-shell** (coder + 6 engineers): edita, shell amplo com
-  negações/`ask` pontuais.
-- **writer-no-shell** (docs-manager): edita, sem shell.
-- **validator-shell** (tester, debugger): ferramenta de edição bloqueada
-  (`edit: deny`) + shell allow-default com negações de destruição/elevação/
-  mutação Git e `ask` de deploy/publish; escrita via shell não coberta por
-  negações é proibição comportamental (prompt/planner), não barreira de
-  runtime.
-- Barreiras: **runtime-enforced** (`edit`, mapas `bash:`,
-  `subagent_depth: 1`, `permission.task: deny` — workers não delegam),
+- **Todos os workers** têm shell irrestrito (`bash: "*": allow`), sem regras
+  específicas `deny` ou `ask`, conforme decisão explícita do usuário.
+- **Limite de edição por papel**: oito implementadores mantêm `edit: allow`;
+  os outros onze mantêm `edit: deny`. Para papéis read-only, isso bloqueia a
+  ferramenta de edição, mas não contém escrita feita via shell.
+- `task: deny` e `subagent: * deny` nos workers permanecem como limite de
+  hierarquia rasa.
+- Barreiras: **runtime-enforced** (`edit`, `subagent_depth: 1`,
+  `permission.task: deny` — workers não delegam),
   **prompt-enforced** (instruções no corpo do agente) e
   **planner-enforced** (Dispatch Contract + confirmação separada do Planner
   para destruição irreversível e credenciais).
@@ -76,16 +72,9 @@ Decisões de preflight/roteamento geram evidência em
 - **Hook sem identidade de agente → mandato neutro**: o plugin sonda o
   campo de agente no input do hook; ausente ou irreconhecível, injeta o
   mandato neutro conservador (nunca adivinha um papel).
-- **`ask` é confirmação, não bloqueio**: no modo auto do runtime ele é
-  auto-aprovado; só `deny` bloqueia de verdade.
-- **Globs `bash:` são matching de string** sobre o texto do comando — não
-  inspecionam conteúdo de scripts, aliases nem wrappers (`pwsh -Command
-  ...`, `bash -c ...`). A contenção dessas rotas é planner-enforced.
-- **`tester` e `debugger` têm shell allow-default** (`"*": allow` + denies de destruição,
-  elevação e mutação Git — incluindo formas bare como `git push` — e `ask`
-  de deploy/publish) — amplitude de execução de validação. `edit: deny`
-  bloqueia a ferramenta de edição; escrita via shell não-listada é proibição
-  comportamental (prompt/planner-enforced), não barreira de runtime.
+- Regras anteriores de allowlist, `deny` e `ask` de shell foram removidas por
+  decisão explícita do usuário. Instruções de papel e contratos continuam
+  orientando o comportamento, mas não são barreiras técnicas de shell.
 
 ## Canários sintéticos
 

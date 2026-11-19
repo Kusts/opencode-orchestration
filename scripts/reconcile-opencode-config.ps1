@@ -46,7 +46,7 @@ function Get-ReconcileModels {
     $parsed = ($lines -join "`n") | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace($parsed.planner) -or [string]::IsNullOrWhiteSpace($parsed.cheap) -or [string]::IsNullOrWhiteSpace($parsed.strong)) { throw 'Arquivo de modelos precisa definir planner, cheap e strong.' }
     if ([string]::IsNullOrWhiteSpace($parsed.free)) {
-      $parsed | Add-Member -NotePropertyName free -NotePropertyValue 'openai/gpt-6-luna' -Force
+      $parsed | Add-Member -NotePropertyName free -NotePropertyValue 'opencode-go/hy4-flash-free' -Force
     }
     return $parsed
 }
@@ -58,12 +58,12 @@ function Resolve-ReconcileTokens {
         $r = $r.Replace('{{MODEL_PLANNER}}', $Models.planner)
         $r = $r.Replace('{{MODEL_CHEAP}}', $Models.cheap)
         $r = $r.Replace('{{MODEL_STRONG}}', $Models.strong)
-        $freeModel = 'openai/gpt-6-luna'
+        $freeModel = 'opencode-go/hy4-flash-free'
         if (-not [string]::IsNullOrWhiteSpace($Models.free)) { $freeModel = [string]$Models.free }
         $r = $r.Replace('{{MODEL_FREE}}', $freeModel)
     }
     else {
-        $r = $r.Replace('{{MODEL_FREE}}', 'openai/gpt-6-luna')
+        $r = $r.Replace('{{MODEL_FREE}}', 'opencode-go/hy4-flash-free')
     }
     $homeSlash = $HomeValue -replace '\\', '/'
     $r = $r.Replace('{{HOME}}', $homeSlash)

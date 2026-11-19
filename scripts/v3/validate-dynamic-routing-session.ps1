@@ -3,11 +3,11 @@
     Deterministic validator for the kernel-backed dynamic routing contract,
     optional caller-supplied productive-session proof and opt-in Jev probing.
 .DESCRIPTION
-    Scope (model-routing-policy 1.5.0):
+    Scope (model-routing-policy 1.6.0):
       1. contract_verifications - policy-level and kernel-proof-path checks:
-         Planner DeepSeek Go T2 primary (Luna availability candidate requires independent no-start proof); Coder T2 Luna ->
+          Planner Hy4 T1 primary (Luna availability candidate requires independent no-start proof); Coder T2 Luna ->
          DeepSeek Go -> Muse -> Haiku (Claude leg gated, never fabricated; HOLD
-         audit-only, never authorized dispatch); DeepSeek Go operator-enabled
+          audit-only, never authorized dispatch); DeepSeek Go remains a T2 candidate and operator-enabled
          active with ZDR expired-unconfirmed (note records operator selection,
          no renewal claimed); Console DeepSeek Free disabled; Reviewer high
          on Terra T3; T4 escalation
@@ -206,13 +206,14 @@ if ($null -ne $policyRes -and -not [string]::IsNullOrWhiteSpace($policyRes.Polic
 Add-ContractCheck "Canonical Policy Loaded" ($null -ne $policyRes -and $policyRes.Status -eq 'POLICY_LOADED' -and -not [string]::IsNullOrWhiteSpace($policyRes.PolicyHash)) "Version: $($policyRes.PolicyVersion), Hash: ${policyHashShort}..."
 $policy = $policyRes.Policy
 
-# 2. Roteamento do Planner (build): DeepSeek Go-only T2 sem fallback automatico
+# 2. Roteamento do Planner (build): Hy4 T1, Luna somente candidato de disponibilidade same-tier
 $selPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Add-ContractCheck "Planner Model Selection" ($selPlanner.Tier -eq 'T2' -and $selPlanner.CatalogModel -eq 'opencode-go/deepseek-v4.1-flash') "Planner alocado em Tier T2 com DeepSeek Go (policy-backed)"
-Add-ContractCheck "Planner Provider Isolation" ($selPlanner.selected_provider -eq 'opencode-go') "Provider efetivo: opencode-go (DeepSeek Go nunca redirecionado)"
-Add-ContractCheck "Planner Fallback Contract" ([string]$policy.planner.tier -eq 'T2' -and [string]$policy.planner.model_id -eq 'opencode-go/deepseek-v4.1-flash' -and [string]$policy.planner.fallback_model_id -eq 'openai/gpt-6-luna' -and (-not [bool]$policy.planner.fallback_requires_capability_proof)) "Planner DeepSeek Go T2 primary; Luna same-tier availability candidate requiring independent no-start proof (non-dispatch)"
+Add-ContractCheck "Planner Model Selection" ($selPlanner.Tier -eq 'T1' -and $selPlanner.CatalogModel -eq 'opencode-go/hy4-flash-free') "Planner alocado em Tier T1 com Hy4 (policy-backed)"
+Add-ContractCheck "Planner Provider Isolation" ($selPlanner.selected_provider -eq 'opencode-go' -and $selPlanner.ModelToken -eq 'MODEL_PLANNER') "Provider efetivo: opencode-go; token MODEL_PLANNER"
+$plannerFallback = Resolve-OrchestrationModelFallback -RequestedSelection $selPlanner -FailedModel 'opencode-go/hy4-flash-free' -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true
+Add-ContractCheck "Planner Fallback Contract" ([string]$policy.planner.tier -eq 'T1' -and [string]$policy.planner.model_id -eq 'opencode-go/hy4-flash-free' -and [string]$policy.planner.fallback_model_id -eq 'openai/gpt-6-luna' -and $plannerFallback.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $plannerFallback.CandidateModel -eq 'openai/gpt-6-luna' -and $plannerFallback.FallbackTier -eq 'T1' -and $null -eq $plannerFallback.FallbackModel -and -not [bool]$plannerFallback.IsAuthorized) "Planner Luna same-tier T1 candidate requires independent no-start proof; resolver remains HOLD/audit-only"
 Add-ContractCheck "Claude Alias Resolution Unverified" ([string]$policy.models.claude_haiku.resolution_status -eq 'runtime-unverified') "claude_haiku resolution_status=runtime-unverified; resolucao concreta de alias permanece NAO verificada em runtime"
-Add-ContractCheck "Claude Haiku Policy Eligibility" ([bool]$policy.models.claude_haiku.enabled -and (@($policy.models.claude_haiku.eligible_roles) -contains 'coder') -and (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build')) "claude_haiku habilitado e elegivel p/ coder (build DeepSeek Go-only, sem Haiku) na politica (policy-level eligibility only; non-dispatch proof)"
+Add-ContractCheck "Claude Haiku Policy Eligibility" ([bool]$policy.models.claude_haiku.enabled -and (@($policy.models.claude_haiku.eligible_roles) -contains 'coder') -and (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build')) "claude_haiku habilitado e elegivel p/ coder (build Hy4 T1, sem Haiku) na politica (policy-level eligibility only; non-dispatch proof)"
 
 # 3. Roteamento do Coder: T2 Luna (primary), DeepSeek Go operator-enabled como alternativa
 $selCoder = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'simple' -Risk 'low' -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -262,7 +263,7 @@ $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexi
 Add-ContractCheck "Tester T0 Deterministic" ($selTesterT0.Tier -eq 'T0' -and $selTesterT0.selected_model_id -eq 'none (deterministic)') "Tester trivial usa T0 sem token de LLM"
 
 # 12. Vetores sinteticos do verificador (eventos artificiais; nenhum modelo executado)
-$vExact = Test-ExecutedModelVerification -RequestedSelection $selPlanner -ExecutedModelEvent @{ Model = 'opencode-go/deepseek-v4.1-flash' } -NativeModelOverrideProven $true
+$vExact = Test-ExecutedModelVerification -RequestedSelection $selPlanner -ExecutedModelEvent @{ Model = 'opencode-go/hy4-flash-free' } -NativeModelOverrideProven $true
 Add-ContractCheck "Synthetic Vector Exact Match" ($vExact.ProofStatus -eq 'EXACT_MATCH' -and $vExact.VerifiedMatch -eq $true) "Vetor sintetico do verificador: EXACT_MATCH (synthetic event; no model executed)"
 
 $vFb = Test-ExecutedModelVerification -RequestedSelection $selCoder -ExecutedModelEvent @{ Model = 'opencode-go/muse-spark-1.3-contributor'; AuthorizedFallback = $fbHop1 } -NativeModelOverrideProven $true
@@ -287,7 +288,7 @@ Add-ContractCheck "Jev Cannot Issue DONE" ($jevGate.done_written -eq $false) "Je
 
 # 14. Recibo do Router
 $receipt = Get-OrchestrationModelRouterReceipt -Selection $selPlanner
-Add-ContractCheck "Model Router Receipt Emission" ($receipt.stage -eq 'model_routing' -and $receipt.catalog_model -eq 'opencode-go/deepseek-v4.1-flash' -and $receipt.tier -eq 'T2') "Recibo: stage=model_routing, modelo=deepseek-v4.1-flash, tier=T2"
+Add-ContractCheck "Model Router Receipt Emission" ($receipt.stage -eq 'model_routing' -and $receipt.catalog_model -eq 'opencode-go/hy4-flash-free' -and $receipt.tier -eq 'T1') "Recibo: stage=model_routing, modelo=hy4-flash-free, tier=T1"
 
 # --------------------------------------------------------------------------
 # PARTE 2: PROVA DE SESSAO PRODUTIVA (CALLER-SUPPLIED EXPORT ONLY)

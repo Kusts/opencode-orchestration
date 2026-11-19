@@ -46,7 +46,7 @@ seleciona o menor conjunto útil, define ownership, integra evidências e
 encerra. `coder` é o implementador padrão; especialistas de domínio só com
 profundidade, risco, workstream independente ou paralelização segura.
 
-**Free pool** (`{{MODEL_FREE}}`, T1 — ultraleve), 4 workers:
+**Free pool** (`{{MODEL_FREE}}` = hy4/OpenCode Go, T1; MiMo fallback), 4 workers:
 
 `explorer`, `researcher`, `tester`, `docs-manager`.
 

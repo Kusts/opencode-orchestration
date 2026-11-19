@@ -1,6 +1,6 @@
 {
   "schema_version": "model-routing-policy/v1",
-  "policy_version": "1.5.0",
+  "policy_version": "1.6.0",
   "providers": {
     "opencode": {
       "name": "OpenCode Console",
@@ -373,6 +373,52 @@
       "last_verified_at": "2026-11-03T00:00:00Z",
       "fallback_candidates": []
     },
+    "hy4": {
+      "id": "hy4",
+      "provider": "opencode-go",
+      "model_id": "opencode-go/hy4-flash-free",
+      "enabled": true,
+      "tier_profiles": [
+        "T1"
+      ],
+      "eligible_roles": [
+        "build",
+        "explorer",
+        "researcher",
+        "tester",
+        "docs-manager"
+      ],
+      "capabilities": [
+        "strategic-planning",
+        "exploration",
+        "triage",
+        "extraction",
+        "technical-analysis",
+        "routine-implementation",
+        "code-generation"
+      ],
+      "priority": 1,
+      "cost_profile": {
+        "pricing_type": "free",
+        "relative_cost": 0.01,
+        "requires_authorization": false
+      },
+      "context_limits": {
+        "max_input_tokens": 128000,
+        "max_output_tokens": 8192
+      },
+      "data_policy": {
+        "sensitive_data_allowed": false,
+        "zdr_status": "unverified",
+        "zdr_note": "OpenCode Go ZDR has not been verified. Do not send sensitive data whose protection depends on ZDR. Until verified, the Planner (which receives all worker outputs) and free-tier roles (explorer, researcher, tester, docs-manager) must treat outputs as non-sensitive.",
+        "note": "Free opencode-go tier; verify workspace privacy restrictions before use."
+      },
+      "availability_status": "active",
+      "last_verified_at": "2026-11-19T00:00:00Z",
+      "fallback_candidates": [
+        "mimo"
+      ]
+    },
     "deepseek_go": {
       "id": "deepseek_go",
       "provider": "opencode-go",
@@ -719,12 +765,12 @@
     },
     "T1": {
       "name": "UltraLight",
-      "primary": "luna",
+      "primary": "hy4",
       "alternatives": [
         "mimo"
       ],
-      "relative_cost": 1,
-      "description": "Luna (openai) primary with free same-tier fallback only (mimo); transport exhaustion never upgrades to a higher tier",
+      "relative_cost": 0.01,
+      "description": "hy4 (opencode-go) primary with free same-tier MiMo fallback only; transport exhaustion never upgrades to a higher tier",
       "fallback": "mimo"
     },
     "T2": {
@@ -765,21 +811,24 @@
   },
   "role_profiles": {
     "build": {
-      "default_model": "deepseek_go",
-      "default_tier": "T2",
+      "default_model": "hy4",
+      "default_tier": "T1",
       "escalation": "engineering-advisor",
       "stable_objective": true,
       "admissible_tiers": [
+        "T1",
         "T2",
         "T3"
       ],
       "prohibited_tiers": [
         "T4"
       ],
-      "alternatives": ["luna"]
+      "alternatives": [
+        "luna"
+      ]
     },
     "explorer": {
-      "default_model": "luna",
+      "default_model": "hy4",
       "default_tier": "T1",
       "alternatives": [
         "deepseek_go",
@@ -797,7 +846,7 @@
       ]
     },
     "researcher": {
-      "default_model": "luna",
+      "default_model": "hy4",
       "default_tier": "T1",
       "alternatives": [
         "deepseek_go",
@@ -830,7 +879,7 @@
       "prohibited_tiers": []
     },
     "tester": {
-      "default_model": "luna",
+      "default_model": "hy4",
       "default_tier": "T1",
       "deterministic_tier": "T0",
       "alternatives": [
@@ -850,7 +899,7 @@
       ]
     },
     "docs-manager": {
-      "default_model": "luna",
+      "default_model": "hy4",
       "default_tier": "T1",
       "alternatives": [
         "deepseek_go",
@@ -1120,17 +1169,17 @@
     }
   },
   "planner": {
-    "primary": "deepseek_go",
-    "model_id": "opencode-go/deepseek-v4.1-flash",
+    "primary": "hy4",
+    "model_id": "opencode-go/hy4-flash-free",
     "provider": "opencode-go",
     "stable_during_objective": true,
-    "tier": "T2",
+    "tier": "T1",
     "fallback": "luna",
     "fallback_model_id": "openai/gpt-6-luna",
     "fallback_provider": "openai",
     "fallback_requires_capability_proof": false,
     "fallback_capability": null,
-    "fallback_resolution_note": "Operator decision 2026-11-16: same-tier T2 Luna availability fallback only with independent proof of non-start; no silent switch, no T3/T4. Generic T2 build chain remains prohibited."
+    "fallback_resolution_note": "Same-tier T1 Luna availability candidate only with independent proof of non-start; no generic T1 chain, no T2/T3/T4."
   },
   "advisor": {
     "default": "claude_sonnet",

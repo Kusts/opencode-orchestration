@@ -1,7 +1,6 @@
 <#!
 .SYNOPSIS
-    Contrato de autoridade do Debugger: shell amplo (allow-default) com negacoes
-    destrutivas, mantendo edit/task deny e a politica de nao editar.
+    Contrato de autoridade do Debugger: shell irrestrito, mantendo edit/task deny.
 .DESCRIPTION
     Suite estatica (PS 5.1, ASCII puro, [OK]/[FAIL] + exit 0/1), descoberta
     automatica pelo run-v3-tests (scripts/runtime/*.tests.ps1). Prova:
@@ -9,21 +8,15 @@
         dotnet/ruff/mypy), leitura Git, gateways de validacao do repo via
         -File, powershell/pwsh -Command, pipes/utilitarios de apresentacao —
         na semantica V1 (most-specific-wins) e V2 (last-match-wins);
-    (B) DENY: delecao/truncamento destrutivo (rm/del/erase/rd/rmdir/ri/
-        Remove-Item/truncate/shred/dd/format), elevacao (sudo/su/runas/gsudo/
-        doas), mutacao Git (push/reset/clean/rebase/merge/commit/branch -D),
-        dropdb, terraform destroy, kubectl delete;
-    (C) ASK: deploy/publish/infra (kubectl apply, docker rm, wrangler deploy,
-        npm run deploy, npm publish, gh release, gh auth);
-    (D) ESTRUTURA: catch-all "*" presente com efeito allow; edit deny; task
-        deny scalar; wildcard somente no fim do padrao; guard de overlap V2
+    (B) SHELL LIVRE: comandos comuns, destrutivos, de elevacao e deploy
+        resultam em allow; nenhum deny/ask especifico;
+    (C) ESTRUTURA: catch-all "*" presente com efeito allow; edit deny; task
+        deny scalar; somente uma regra bash; guard de overlap V2
         passa; emissao V2 traduz sem erro;
     (E) COMPATIBILIDADE: paridade V1<->V2 para todas as amostras; roundtrip V1
         do frontmatter do debugger preserva as regras;
-    (F) COMPORTAMENTO: corpo do debugger.md contra o contrato (nao editar app,
-        negacao encerra a rota, proibido contorno,
-        DIAGNOSIS_CAPABILITY_UNAVAILABLE, sem pedido de shell destrutivo,
-        negacao nao e bug funcional, sem subagentes).
+    (F) COMPORTAMENTO: corpo do debugger.md preserva o mandato consultivo e
+        a regra de nao criar subagentes.
     Nao modifica o repo (children apenas leem).
 #>
 $ErrorActionPreference = 'Stop'
@@ -103,7 +96,7 @@ foreach ($cmd in @(
   Assert-Effect 'allow' $cRel $cmd ('A: shell de diagnostico permitido: ' + $cmd)
 }
 
-# ---- (B) DENY: destruicao, elevacao, mutacao Git/infra --------------------------
+# ---- (B) SHELL LIVRE: destruicao, elevacao, mutacao Git/infra -------------------
 
 foreach ($cmd in @(
   'rm -rf build',
@@ -144,10 +137,10 @@ foreach ($cmd in @(
   'terraform destroy -auto-approve',
   'kubectl delete pod x'
 )) {
-  Assert-Effect 'deny' $cRel $cmd ('B: rota destrutiva/mutadora negada: ' + $cmd)
+  Assert-Effect 'allow' $cRel $cmd ('B: shell irrestrito permite: ' + $cmd)
 }
 
-# ---- (C) ASK: deploy/publish/infra (confirmacao, nunca rotina do debugger) --------
+# ---- (C) SHELL LIVRE: deploy/publish/infra --------------------------------------
 
 foreach ($cmd in @(
   'kubectl apply -f deploy.yaml',
@@ -158,7 +151,7 @@ foreach ($cmd in @(
   'gh release create v1.0.0',
   'gh auth login'
 )) {
-  Assert-Effect 'ask' $cRel $cmd ('C: operacao de deploy/publish sob ask: ' + $cmd)
+  Assert-Effect 'allow' $cRel $cmd ('C: shell irrestrito permite: ' + $cmd)
 }
 
 # ---- (D) ESTRUTURA: catch-all, edit/task, wildcard, guard V2 --------------------
@@ -167,29 +160,7 @@ Assert-Ok (([bool]$cRel.HasCatchAll) -and ([string]$cRel.CatchAllEffect -ceq 'al
 Assert-Ok (([string]$cRel.Edit -ceq 'deny') -and ([bool]$cRel.EditPresent)) 'D: edit continua deny' ([string]$cRel.Edit)
 Assert-Ok (([string]$cRel.TaskKind -ceq 'scalar') -and ([string]$cRel.TaskScalar -ceq 'deny')) 'D: task/subagent continua deny (scalar)' ('kind=' + [string]$cRel.TaskKind + ' task=' + [string]$cRel.TaskScalar)
 Assert-Ok ([string]$cRel.BashKind -ceq 'map') 'D: bash em mapa' ([string]$cRel.BashKind)
-
-$wildcardPosOk = $true
-$wildcardPosDetail = ''
-foreach ($r in @($cRel.ShellRules)) {
-  $p = [string]$r.Pattern
-  $ix = $p.IndexOf('*')
-  if ($ix -ge 0) {
-    if ($ix -ne ($p.Length - 1)) { $wildcardPosOk = $false; $wildcardPosDetail += ($p + ' ') }
-  }
-}
-Assert-Ok $wildcardPosOk 'D: wildcard somente no fim do padrao (nenhum * interno)' $wildcardPosDetail
-
-# Familias negadas obrigatorias presentes (nada de allow-default sem denies).
-$requiredDenyPrefixes = @('rm ', 'del ', 'Remove-Item ', 'rmdir ', 'sudo ', 'su ', 'git push ', 'git reset ', 'git clean ', 'git commit ', 'dropdb ')
-$missingDeny = ''
-foreach ($req in $requiredDenyPrefixes) {
-  $found = $false
-  foreach ($r in @($cRel.ShellRules)) {
-    if ((([string]$r.Effect) -ceq 'deny') -and (([string]$r.Pattern).StartsWith($req, [StringComparison]::Ordinal))) { $found = $true; break }
-  }
-  if (-not $found) { $missingDeny += ($req + ' ') }
-}
-Assert-Ok ([string]$missingDeny -ceq '') 'D: familias destrutivas/mutadoras presentes como deny' $missingDeny
+Assert-Ok ((@($cRel.ShellRules)).Count -eq 1 -and [string]$cRel.ShellRules[0].Pattern -ceq '*' -and [string]$cRel.ShellRules[0].Effect -ceq 'allow') 'D: shell contém somente "*": allow'
 
 $guardOk = $true
 $guardErr = ''
@@ -218,49 +189,15 @@ try {
 catch { $roundOk = $false; $roundErr = $_.Exception.Message }
 Assert-Ok $roundOk 'E: roundtrip V1 do debugger preserva shell rules' $roundErr
 
-# ---- (F) COMPORTAMENTO: corpo do debugger.md contra o contrato --------------------
+# ---- (F) COMPORTAMENTO: mandato do debugger preservado ---------------------------
 
 $body = [string]$parsed.Body
 $bodyNorm = ($body -replace "\r?\n", ' ')
 function Assert-BodyHas([string]$needle, [string]$name) {
   Assert-Ok ($bodyNorm.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) ('F: corpo ' + $name) ('ausente: ' + $needle)
 }
-Assert-BodyHas 'Permission denied' 'trata negacao como autoridade'
-Assert-BodyHas 'ENCERRA' 'negacao encerra a rota'
-Assert-BodyHas 'DIAGNOSIS_CAPABILITY_UNAVAILABLE' 'define blocker estruturado'
-Assert-BodyHas 'DIAGNOSIS CAPABILITY UNAVAILABLE' 'distingue incapacidade principal'
-Assert-BodyHas 'DIAGNOSIS FAILED' 'distingue falha funcional'
-Assert-BodyHas 'reformule' 'proibe contorno por reformulacao'
-Assert-BodyHas '-Command' 'cita shells/interpretadores de contorno'
-Assert-BodyHas 'cmd /c' 'cita cmd como contorno proibido'
-Assert-BodyHas 'bash -c' 'cita bash como contorno proibido'
-Assert-BodyHas 'sudo' 'proibe sudo'
-Assert-BodyHas 'runas' 'proibe runas'
-Assert-BodyHas 'gsudo' 'proibe gsudo'
-Assert-BodyHas 'doas' 'proibe doas'
-Assert-BodyHas 'su' 'proibe su como elevacao'
-Assert-BodyHas 'indefinidamente' 'encerra busca por rotas'
-Assert-BodyHas 'bug funcional' 'negacao nao e bug funcional'
-Assert-BodyHas 'amplia' 'proibe pedir shell destrutivo'
-Assert-BodyHas 'modifique c' 'proibe alterar app para diagnostico passar'
-Assert-BodyHas 'altere c' 'reafirma proibicao de alterar app'
+Assert-BodyHas 'para o Coder' 'mantém o mandato consultivo'
 Assert-BodyHas 'crie subagentes' 'hierarquia rasa'
-Assert-BodyHas 'bloqueia a ferramenta de edi' 'nomeia a politica de nao editar'
-Assert-BodyHas 'artefatos tempor' 'escrita restrita a artefatos temporarios'
-Assert-BodyHas 'INTENDED DIAGNOSIS' 'blocker inclui diagnostico pretendido'
-Assert-BodyHas 'RESTRICTION FOUND' 'blocker inclui restricao encontrada'
-Assert-BodyHas 'SAFE ALTERNATIVE' 'blocker inclui alternativa segura se conhecida'
-
-# Contorno por prefixo visivel permanece negado no matcher (sudo antes do comando).
-Assert-Effect 'deny' $cRel 'sudo rm -rf build' 'F: contorno sudo + rm negado'
-
-# Limitacao documentada (docs/PERMISSIONS.md): globs sao string-matching sobre o
-# comando; o matcher NAO ve conteudo dentro de wrappers (-Command, bash -c, cmd /c).
-# Com catch-all allow, esses wrappers casam so o catch-all — a contencao do
-# CONTEUDO do wrapper e prompt-enforced (corpo do debugger) + planner-enforced
-# (contrato), nunca do glob. Assercao honesta contra claim futuro de contencao.
-Assert-Effect 'allow' $cRel 'pwsh -Command "Remove-Item -Recurse build"' 'F (limitacao): matcher nao ve conteudo de -Command (contencao e prompt/planner)'
-Assert-Effect 'allow' $cRel 'bash -c "git push origin main"' 'F (limitacao): matcher nao ve conteudo de bash -c (contencao e prompt/planner)'
 
 Write-Host ''
 Write-Host ('TEST RESULTS: ' + $script:passed + ' / ' + $script:total + ' passed')

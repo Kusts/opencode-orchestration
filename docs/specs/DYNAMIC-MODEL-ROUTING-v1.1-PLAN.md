@@ -1,6 +1,6 @@
-﻿# PLAN — Dynamic Model Routing v1.1
+# PLAN — Dynamic Model Routing v1.1
 
-> **Histórico:** plano original v1.1, não é status operacional atual. Referências a Iceman T1, Luna T3 ou Planner Luna estão superadas pela policy 1.5.0 (T1/T2 Luna; T3 Sonnet; Planner DeepSeek Go sem fallback).
+> **Histórico:** plano original v1.1, não é status operacional atual. Referências a Iceman T1, Luna T3 ou Planner Luna estão superadas pela policy 1.6.0 (T1 hy4; T2 Luna; T3 Sonnet; Planner hy4 T1).
 
 **Projeto:** Kusts/opencode-orchestration
 **Status:** READY_FOR_IMPLEMENTATION
@@ -243,7 +243,7 @@ Preservar recibos idempotentes e integridade dos resultados.
 
 Configurar:
 
-`openai/gpt-6-luna`
+`opencode-go/hy4-flash-free`
 
 Manter modelo estável durante o objetivo normal.
 

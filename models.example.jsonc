@@ -1,13 +1,13 @@
 {
-  // Model Router v1.4: Planner (agente build, sessao raiz) usa DeepSeek Go (tier operacional T2).
-  // Planner usa DeepSeek Go; sem fallback automatico nem replay silencioso.
-  // O modelo global (topo do opencode.json) permanece DeepSeek Go, separado deste campo.
+  // Model Router v1.4: Planner (agente build, sessao raiz) usa hy4 (tier operacional T1).
+  // Planner usa hy4; Luna e fallback T1 apenas com prova independente de nao-inicio.
+  // O modelo global (topo do opencode.json) usa hy4, separado deste campo.
   // Copie como models.jsonc (arquivo local ignorado pelo Git).
-  "planner": "opencode-go/deepseek-v4.1-flash",
+  "planner": "opencode-go/hy4-flash-free",
   // T2: primary Luna; alternativas DeepSeek Go->Muse->Haiku (mesmo tier; exaustao de transporte nunca sobe de tier).
   "cheap": "openai/gpt-6-luna",
-  // T1: Luna; fallback opencode/mimo-v2.6-flash-free.
-  "free": "openai/gpt-6-luna",
+  // T1: hy4 (OpenCode Go); fallback opencode/mimo-v2.6-flash-free.
+  "free": "opencode-go/hy4-flash-free",
   // T3: alias Sonnet (claude-agent/sonnet; nome de catalogo Sonnet 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Fallback tecnico Terra.
   "strong": "claude-agent/sonnet",
   // T4: alias Opus (claude-agent/opus; nome de catalogo Opus 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Transporte mesmo tier Opus->Sol; candidatas T2 degradadas DeepSeek Go->Muse apenas audit-only HOLD para papeis admissiveis a T2 (sem retry); Astra/Fable excepcionais e proof-gated, nunca automaticos.

@@ -861,7 +861,7 @@ function Validate-Models([string]$ModelsPath, [string]$Root = '') {
     }
   }
   if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Values = $null } }
-  $defaultFree = 'openai/gpt-6-luna'
+  $defaultFree = 'opencode-go/hy4-flash-free'
   if (-not [string]::IsNullOrWhiteSpace($Root)) {
     $defaultFree = Get-DefaultFreeModel $Root
   }
@@ -957,12 +957,12 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
   if ($agentCount -ne 17) { $errs += ('template: esperado 17 blocos agent, encontrado ' + $agentCount) }
   if (Has-Member $desired.agent 'build') {
     if (-not (Has-Member $desired.agent.build 'model') -or [string]$desired.agent.build.model -cne $Planner) {
-      $errs += 'template: agent.build.model deve ser MODEL_PLANNER (Planner Luna, isolado do modelo global).'
+      $errs += 'template: agent.build.model deve ser MODEL_PLANNER (Planner hy4, isolado do modelo global).'
     }
   }
   else { $errs += 'template: bloco agent.build ausente.' }
-  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/deepseek-v4.1-flash') {
-    $errs += 'template: modelo global deve permanecer opencode-go/deepseek-v4.1-flash.'
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/hy4-flash-free') {
+    $errs += 'template: modelo global deve permanecer opencode-go/hy4-flash-free.'
   }
   if ((Has-Member $desired.agent 'title') -and [string]$desired.agent.title.model -cne 'openai/gpt-6-luna') {
     $errs += 'template: agente title deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'
@@ -997,7 +997,7 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
   if (Has-Member $desired 'agents') {
     if (Has-Member $desired.agents 'build') {
       if (-not (Has-Member $desired.agents.build 'model') -or [string]$desired.agents.build.model -cne $Planner) {
-        $errs += 'template V2: agents.build.model deve ser MODEL_PLANNER (Planner Luna, isolado do modelo global).'
+        $errs += 'template V2: agents.build.model deve ser MODEL_PLANNER (Planner hy4, isolado do modelo global).'
       }
       if (-not (Has-Member $desired.agents.build 'permissions')) {
         $errs += 'template V2: bloco agents.build sem permissions array.'
@@ -1012,8 +1012,8 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
     else { $errs += 'template V2: bloco agents.title ausente.' }
   }
   else { $errs += 'template V2: bloco agents ausente.' }
-  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/deepseek-v4.1-flash') {
-    $errs += 'template V2: modelo global deve permanecer opencode-go/deepseek-v4.1-flash.'
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/hy4-flash-free') {
+    $errs += 'template V2: modelo global deve permanecer opencode-go/hy4-flash-free.'
   }
   if ((Has-Member $desired.agents 'title') -and [string]$desired.agents.title.model -cne 'openai/gpt-6-luna') {
     $errs += 'template V2: agents.title.model deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'

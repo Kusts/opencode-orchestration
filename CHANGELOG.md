@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+- **Permissões de shell dos workers:** por decisão explícita do usuário,
+  removidas as regras de `deny`/`ask` e allowlists específicas de shell; os
+  19 agentes agora têm shell irrestrito. `edit` por papel, `task: deny` e
+  `subagent: * deny` nos workers foram preservados.
+
+- Routing: `hy4` (OpenCode Go) passa a ser o primário T1 e do Planner `build` (policy 1.5.0 → 1.6.0); MiMo é fallback T1 e Luna permanece candidata de disponibilidade do Planner somente com prova independente de não-início. Sem promoção por exaustão de transporte.
+
 Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).

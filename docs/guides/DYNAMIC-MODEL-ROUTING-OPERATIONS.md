@@ -32,7 +32,7 @@ A autoridade canônica de configuração reside em [`source/registry/model-routi
 1. **ADR-01 — Um único Model Router:** Toda seleção passa por [`scripts/v3/lib/OrchestrationModelRouter.ps1`](file:///scripts/v3/lib/OrchestrationModelRouter.ps1). Não crie seletores paralelos.
 2. **ADR-02 — Providers Independentes:**
    - `opencode` (Console): DeepSeek V4.1 Flash Free — **desabilitado** na policy, nunca substituto implícito.
-   - `opencode-go`: DeepSeek V4.1 Flash (candidato T2; a decisão de primário de 2026-11-04 foi superada pela policy 1.5.0) e Muse Spark 1.3 Contributor. DeepSeek Go ZDR `expired-unconfirmed`; não envie dados que exijam ZDR.
+   - `opencode-go`: hy4 Flash Free (primário T1), DeepSeek V4.1 Flash e Muse Spark 1.3 Contributor (candidatos T2). DeepSeek Go ZDR `expired-unconfirmed`; não envie dados que exijam ZDR.
    - `openai`: GPT-6 Luna, GPT-6.1 Sol, GPT-6 Astra.
    - `jev`: Jev 1.13 Free (System One).
    - **Regra inviolável:** Modelos OpenAI (Luna, Sol, Astra) devem ser despachados estritamente pelo provider `openai`, nunca convertidos silenciosamente para `opencode` ou `opencode-go`.
@@ -91,7 +91,7 @@ Para substituir um modelo que foi descontinuado ou superado por uma versão mais
 3. Caso queira manter o ID lógico estável (exemplo: `luna` apontando para `gpt-6-luna-v2`), altere apenas `model_id`:
    ```json
    "luna": {
-     "model_id": "openai/gpt-6-luna-20261026",
+     "model_id": "opencode-go/hy4-flash-free",
      "last_verified_at": "2026-10-26T12:00:00Z"
    }
    ```
@@ -147,7 +147,7 @@ As prioridades de seleção primária e secundária de cada tier são governadas
 }
 ```
 
-- A decisão datada de 2026-11-04 que selecionava DeepSeek Go como T2 primário foi superada pela policy 1.5.0: T2 primário Luna, candidatos DeepSeek Go/Muse/Haiku. DeepSeek Go mantém ZDR `expired-unconfirmed`; não envie dados sensíveis cuja proteção exija ZDR.
+- A decisão datada de 2026-11-04 que selecionava DeepSeek Go como T2 primário foi superada: policy 1.6.0 mantém T2 Luna, candidatos DeepSeek Go/Muse/Haiku; T1 hy4 com MiMo fallback. DeepSeek Go mantém ZDR `expired-unconfirmed`; não envie dados sensíveis cuja proteção exija ZDR.
 - Candidatos técnicos T2/T3/T4 permanecem audit-only HOLD (`CandidateModel` não-autorizador, sem replay); downgrade T2 (DeepSeek Go antes de Muse) para transporte T3/T4 vale somente para papéis admissíveis a T2.
 - As alterações entram em vigor imediatamente após salvar o arquivo (o cache do Router recalcula automaticamente o `policy_hash`).
 
@@ -169,7 +169,7 @@ O Planner coordena o objetivo geral e exige estabilidade contextual durante todo
 2. **Diretrizes de Operação:**
    - `primary_model`: Sempre deve apontar para modelo de alta estabilidade e capacidade de raciocínio intermediário (`luna` / GPT-6 Luna).
    - `stable_during_objective: true`: Proíbe rotação oportunista de modelo no meio de uma sessão de planejamento para não degradar a janela de contexto.
-   - `rotation_prohibited: true`: Proíbe rebaixar o Planner para T2 ou T1.
+    - `rotation_prohibited: true`: Proíbe trocar o primário hy4 ou rebaixar o Planner abaixo de T1.
 
 ---
 
@@ -249,7 +249,7 @@ Comando de auditoria pós-execução para diagnóstico:
 ```powershell
 . scripts\v3\lib\OrchestrationModelRouter.ps1
 $sel = Resolve-OrchestrationModelSelection -AgentName 'coder'
-$telemetria = @{ Model = 'opencode-go/deepseek-v4.1-flash' }
+$telemetria = @{ Model = 'opencode-go/hy4-flash-free' }
 Test-ExecutedModelVerification -RequestedSelection $sel -ExecutedModelEvent $telemetria -NativeModelOverrideProven $true
 ```
 
@@ -280,13 +280,13 @@ Se uma alteração no catálogo causar falhas ou indisponibilidade inesperada:
 
 | Agente | Tier padrão | Modelo primário | Escalonamento / notas | Provider |
 |---|---|---|---|---|
-| **Planner (`build`)** | T2 | `opencode-go/deepseek-v4.1-flash` | Primário declarado; sem fallback automático | `opencode-go` |
-| **Explorer** | T1 | `openai/gpt-6-luna` | Candidatos T2 conforme policy/admissibilidade; nunca T3/T4 | `openai` |
-| **Researcher** | T1 | `openai/gpt-6-luna` | Candidatos T2 conforme policy/admissibilidade; nunca T3/T4 | `openai` |
-| **Docs Manager** | T1 | `openai/gpt-6-luna` | Candidatos T2 conforme policy/admissibilidade; nunca T3/T4 | `openai` |
+| **Planner (`build`)** | T1 | `opencode-go/hy4-flash-free` | Primário; Luna é fallback same-tier somente com prova independente de não-início | `opencode-go` |
+| **Explorer** | T1 | `opencode-go/hy4-flash-free` | MiMo fallback; T2 sob admissibilidade; nunca T3/T4 | `opencode-go` |
+| **Researcher** | T1 | `opencode-go/hy4-flash-free` | MiMo fallback; T2 sob admissibilidade; nunca T3/T4 | `opencode-go` |
+| **Docs Manager** | T1 | `opencode-go/hy4-flash-free` | MiMo fallback; T2 sob admissibilidade; nunca T3/T4 | `opencode-go` |
 | **Tester (T0 determinístico)** | T0 | *Nenhum (código/AST)* | Proibido LLM | `none` |
-| **Tester (com LLM)** | T1 | `openai/gpt-6-luna` | MiMo / DeepSeek Go / Muse / Haiku como candidatos admissíveis T1/T2; nunca T3/T4 | `openai` |
-| **Coder** | T2 | `openai/gpt-6-luna` | Alternativas T2 conforme policy 1.5.0 (`muse`, `claude_haiku`); sem fallback produtivo sem prova independente de no-start | `openai` |
+| **Tester (com LLM)** | T1 | `opencode-go/hy4-flash-free` | MiMo fallback; T2 candidates conforme admissibilidade; nunca T3/T4 | `opencode-go` |
+| **Coder** | T2 | `openai/gpt-6-luna` | Alternativas T2 conforme policy 1.6.0 (`muse`, `claude_haiku`); sem fallback produtivo sem prova independente de no-start | `openai` |
 | **Frontend / Backend / Database / AI Agent / Automation / Infra Engineer** | T2 | `openai/gpt-6-luna` | DeepSeek Go / Muse / Haiku candidatos admissíveis; sem T4 automático quando proibido pelo perfil | `openai` |
 | **Engineering Advisor** | T3 | `claude-agent/sonnet` (fallback `openai/gpt-6.1-terra`) | Sempre T3 mínimo; T2 proibido; T4 somente com prova Kernel | `claude-agent` |
 | **Reviewer** | T3 | `claude-agent/sonnet` | Risco baixo + tarefa simples pode admitir T2 conforme policy; risco alto/crítico sem downgrade para T2 | `claude-agent` |
@@ -296,7 +296,7 @@ Se uma alteração no catálogo causar falhas ou indisponibilidade inesperada:
 | **Requirements Analyst / Product Designer / Skeptic** | T2 | `openai/gpt-6-luna` | Candidatos alternativos conforme policy e admissibilidade do perfil | `openai` |
 
 Notas normativas (v1.4):
-- Candidatos ordenados na policy 1.5.0: T1 Luna→MiMo; T2 Luna com candidatos DeepSeek Go/Muse/Haiku; T3 Sonnet→Terra; T4 Opus→Sol, Astra excepcional proof-gated. A ordem não autoriza retry: fallback produtivo depende de prova independente de no-start. Downgrade T2 para papéis não admissíveis continua proibido.
+- Candidatos ordenados na policy 1.6.0: T1 hy4→MiMo; T2 Luna com candidatos DeepSeek Go/Muse/Haiku; T3 Sonnet→Terra; T4 Opus→Sol, Astra excepcional proof-gated. A ordem não autoriza retry: fallback produtivo depende de prova independente de no-start. Downgrade T2 para papéis não admissíveis continua proibido.
 - T4 Opus após prova T3 válida do Kernel não exige aprovação manual por chamada (`cost_policy.t4_requires_authorization=false`).
 - Astra exige prova T4 Opus válida do Kernel **e** `OPENCODE_ASTRA_AUTHORIZED=true` (`cost_policy.astra_requires_exceptional_authorization=true`); sem a variável, a seleção é `REJECTED` sem resquício executável e sem retentar Opus. Fable permanece HOLD.
 - Aliases `claude-agent/*` (haiku/sonnet/opus/fable) permanecem `runtime-unverified`: identidade de despacho é o próprio alias; nenhum ID concreto é afirmado sem prova de sessão.
@@ -312,7 +312,7 @@ Toda seleção de modelo despachada gera um recibo com a seguinte estrutura:
   "stage": "model_routing",
   "agent": "coder",
   "tier": "T2",
-  "catalog_model": "opencode-go/deepseek-v4.1-flash",
+  "catalog_model": "opencode-go/hy4-flash-free",
   "model_token": "MODEL_CHEAP",
   "provider_cost_authorized": false,
   "authorization_source": "STANDARD_CATALOG",
