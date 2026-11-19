@@ -51,8 +51,8 @@ ativa e worktrees de terceiros; não usar force-push nem reset destrutivo.
 
 ## Evolução — 19/11/2026
 
-Veredito: implementado e validado; alterações consolidadas em 24 arquivos (+347/−823), sem commit/push.
+Veredito: implementado e validado; alterações consolidadas em 24 arquivos (+347/−823). PR #288 em verificação.
 Incluiu #287 (policy única T1–T4), #286 (remoção de provas sem callers), correções HY4/Fix e atualização documental.
-Validações focadas e suíte V3 passaram; distribuição teve 1 falha ambiental: binário OpenCode v2.3.0 ausente.
-Permanecem HOLDs de autonomia; Fase 5 não executada por depender de provider/capacidade externa e PR real.
+Validações focadas e suíte V3 passaram; distribuição: 24 PASS / 0 FAIL / 1 SKIP. B2 foi resolvido com provisionamento reversível do binário v2.3.0. Anchors de pins resolvidos por conteúdo estável, com falha fechada se o padrão não for único.
+PR #288 aguarda checks; permanecem HOLDs de autonomia. Fase 5 depende de provider/capacidade externa; conclusão causal de eficiência exige runtime V2 vivo e A/B controlado.
 Detalhes, decisões e próximos passos: [relatório da evolução](../evidence/evolution-2026-11-19/RELATORIO.md).
