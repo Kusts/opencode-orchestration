@@ -16,6 +16,11 @@ function Run-Installer([string]$Home_, [string[]]$Extra) {
   $out = & $engine -NoProfile -File $Script -RepoRoot $RepoRoot -ClaudeHome $Home_ @Extra 2>&1
   return @{ code = $LASTEXITCODE; out = ($out -join "`n") }
 }
+function Run-Uninstaller([string]$OcHome_, [string]$ClaudeHome_) {
+  $un = Join-Path $RepoRoot 'uninstall.ps1'
+  $out = & $engine -NoProfile -File $un -TargetHome $OcHome_ -ClaudeHome $ClaudeHome_ -ClaudeHybrid 2>&1
+  return @{ code = $LASTEXITCODE; out = ($out -join "`n") }
+}
 function Count([string]$Text, [string]$Needle) { return ([regex]::Matches($Text, [regex]::Escape($Needle))).Count }
 $Start = '<!-- opencode-orchestration:claude-hybrid:start -->'
 $End = '<!-- opencode-orchestration:claude-hybrid:end -->'
@@ -76,13 +81,75 @@ try {
   Assert ($r.code -eq 0 -and (-not $md.Contains($Start)) -and (-not $md.Contains($End))) 'uninstall remove o bloco'
   Assert ($md.Contains('## Regras do usuario') -and $md.Contains('## Final do usuario')) 'uninstall preserva secoes do usuario'
   Assert ((Test-Path $skillFile) -and (-not (Test-Path (Join-Path $h2 'skills\hybrid-orchestration\references')))) 'uninstall preserva skill editada e remove arquivos gerenciados intactos'
-  Assert (-not (Test-Path (Join-Path $h2 '.opencode-orchestration-claude.json'))) 'uninstall remove o manifest'
+  Assert (Test-Path (Join-Path $h2 '.opencode-orchestration-claude.json')) 'uninstall parcial preserva manifest (registro de conflito da skill)'
   $r = Run-Installer $h1 @('-Uninstall')
   Assert (($r.code -eq 0) -and (-not (Test-Path (Join-Path $h1 'skills\hybrid-orchestration'))) -and (-not (Test-Path (Join-Path $h1 '.opencode-orchestration-claude.json')))) 'uninstall limpo remove skill e manifest (rollback standalone)'
 
   # --- 6. standalone: install.ps1 sem -ClaudeHome/-ClaudeHybrid nao referencia ~/.claude
   $inst = Get-Content -LiteralPath (Join-Path $RepoRoot 'install.ps1') -Raw
   Assert ($inst -match 'ClaudeHybrid') 'install.ps1 expoe switch -ClaudeHybrid'
+
+  # --- 7. P0-01: bloco editado diverge do manifest -> CONFLICT preservado -----
+  $h3 = Join-Path $root 'conflict-block'
+  New-Item -ItemType Directory -Path $h3 -Force | Out-Null
+  $r = Run-Installer $h3 @()
+  Assert ($r.code -eq 0) 'P0-01 setup: install em home temporario'
+  $bakDir3 = Join-Path $h3 'backups\opencode-orchestration-claude\preexistente'
+  New-Item -ItemType Directory -Path $bakDir3 -Force | Out-Null
+  [IO.File]::WriteAllText((Join-Path $bakDir3 'CLAUDE.md'), "backup original`n", $Utf8)
+  $md3 = Join-Path $h3 'CLAUDE.md'
+  $orig = [IO.File]::ReadAllText($md3, [Text.Encoding]::UTF8)
+  $customLine = '- LINHA CUSTOMIZADA PELO USUARIO'
+  $pos = $orig.IndexOf($Start) + $Start.Length
+  $edited = $orig.Substring(0, $pos) + "`n`n" + $customLine + "`n" + $orig.Substring($pos)
+  [IO.File]::WriteAllText($md3, $edited, $Utf8)
+  $r = Run-Installer $h3 @()
+  $after = [IO.File]::ReadAllText($md3, [Text.Encoding]::UTF8)
+  Assert (($r.code -eq 0) -and ($r.out -match 'CONFLICT')) 'P0-01.2: update reporta CONFLICT'
+  Assert ($after.Contains($customLine)) 'P0-01.2: conteudo personalizado preservado no update'
+  Assert (((Count $after $Start) -eq 1) -and ((Count $after $End) -eq 1)) 'P0-01.3: bloco marcado intacto (nao reescrito)'
+  $bakKept = (Test-Path (Join-Path $bakDir3 'CLAUDE.md')) -and ([IO.File]::ReadAllText((Join-Path $bakDir3 'CLAUDE.md'), [Text.Encoding]::UTF8) -ceq "backup original`n")
+  Assert $bakKept 'P0-01.4: backup existente preservado'
+  $r = Run-Installer $h3 @('-Uninstall')
+  $afterUn = [IO.File]::ReadAllText($md3, [Text.Encoding]::UTF8)
+  Assert (($r.code -eq 0) -and ($r.out -match 'CONFLICT')) 'P0-01.2/3: uninstall reporta CONFLICT'
+  Assert ($afterUn.Contains($customLine)) 'P0-01.2/3: uninstall preserva bloco editado'
+  Assert (Test-Path (Join-Path $h3 '.opencode-orchestration-claude.json')) 'P0-01.5: manifest preservado na desinstalacao parcial'
+
+  # --- 8. P0-02: uninstall -ClaudeHybrid preserva instalacao OpenCode ---------
+  $hoc = Join-Path $root 'oc-home'
+  $ocDir = Join-Path $hoc '.config\opencode'
+  New-Item -ItemType Directory -Path (Join-Path $ocDir 'agents') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $ocDir 'plugins') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $hoc '.opencode-orchestration') -Force | Out-Null
+  $agentPath = Join-Path $ocDir 'agents\coder.md'
+  $pluginPath = Join-Path $ocDir 'plugins\orchestration-enforcement.js'
+  $cfgPath = Join-Path $ocDir 'opencode.json'
+  [IO.File]::WriteAllText($agentPath, "# coder`n", $Utf8)
+  [IO.File]::WriteAllText($pluginPath, "// plugin`n", $Utf8)
+  [IO.File]::WriteAllText($cfgPath, "{`"model`":`"x`",`"mcp`":{}}`n", $Utf8)
+  $mf = [ordered]@{
+    schema = 1
+    runtime = [ordered]@{ id = 'opencode-v2' }
+    managed_files = @(
+      [ordered]@{ relative = 'agents/coder.md'; sha256 = (Get-FileHash -LiteralPath $agentPath -Algorithm SHA256).Hash }
+      [ordered]@{ relative = 'plugins/orchestration-enforcement.js'; sha256 = (Get-FileHash -LiteralPath $pluginPath -Algorithm SHA256).Hash }
+    )
+    config_snapshot = [ordered]@{}
+  }
+  [IO.File]::WriteAllText((Join-Path $hoc '.opencode-orchestration\manifest.json'), (($mf | ConvertTo-Json -Depth 8) + "`n"), $Utf8)
+  $hc = Join-Path $root 'claude-only'
+  New-Item -ItemType Directory -Path $hc -Force | Out-Null
+  $r = Run-Installer $hc @()
+  Assert ($r.code -eq 0) 'P0-02 setup: integracao Claude instalada'
+  $r = Run-Uninstaller $hoc $hc
+  $ocManifest = Join-Path $hoc '.opencode-orchestration\manifest.json'
+  Assert ($r.code -eq 0) 'P0-02: uninstall -ClaudeHybrid exit 0'
+  Assert ((Test-Path $agentPath) -and (Test-Path $pluginPath) -and (Test-Path $cfgPath) -and (Test-Path $ocManifest)) 'P0-02: instalacao OpenCode preservada (agentes, plugin, config, manifest)'
+  Assert (($r.out -notmatch '\[uninstall\] runtime=') -and ($r.out -notmatch 'Backup pre-uninstall')) 'P0-02: fluxo OpenCode uninstall nao executado'
+  $hcText = [IO.File]::ReadAllText((Join-Path $hc 'CLAUDE.md'), [Text.Encoding]::UTF8)
+  Assert ((-not $hcText.Contains($Start)) -and (-not $hcText.Contains($End))) 'P0-02: bloco Claude removido'
+  Assert ((-not (Test-Path (Join-Path $hc 'skills\hybrid-orchestration'))) -and (-not (Test-Path (Join-Path $hc '.opencode-orchestration-claude.json')))) 'P0-02: skill e manifest Claude removidos'
 }
 finally {
   if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }

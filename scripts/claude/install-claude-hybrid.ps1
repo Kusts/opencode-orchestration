@@ -99,6 +99,30 @@ function Find-BlockRange([string]$Text) {
   if (($s -lt 0) -or ($e -lt $s) -or ($Text.IndexOf($MarkStart, $s + 1) -ge 0) -or ($Text.IndexOf($MarkEnd, $e + 1) -ge 0)) { throw 'CLAUDE.md: marcadores do bloco hibrido corrompidos/duplicados' }
   return @{ start = $s; end = $e + $MarkEnd.Length }
 }
+# Hash do bloco instalado: o manifest registra block_sha256 no install. Para
+# reconhecer o bloco gerenciado, compara-se o corpo entre marcadores com esse
+# hash. Tres representacoes de EOL sao aceitas (LF, CRLF e o texto bruto) para
+# nao falsear CONFLICT apos troca de EOL do arquivo ou de manifests legados.
+function Get-ManifestBlockHash() {
+  if ($null -eq $manifest) { return $null }
+  $p = $manifest.PSObject.Properties['block_sha256']
+  if ($null -eq $p) { return $null }
+  return [string]$p.Value
+}
+function Test-ManagedBlock([string]$Text) {
+  if ($null -eq (Find-BlockRange $Text)) { return $false }
+  $expected = Get-ManifestBlockHash
+  if ([string]::IsNullOrEmpty($expected)) { return $false }
+  $s = $Text.IndexOf($MarkStart)
+  $e = $Text.IndexOf($MarkEnd)
+  $inner = $Text.Substring($s + $MarkStart.Length, $e - ($s + $MarkStart.Length))
+  $raw = $inner.Trim("`r", "`n")
+  $lf = $raw -replace "`r`n", "`n"
+  foreach ($candidate in @((Get-ShaText $raw), (Get-ShaText $lf), (Get-ShaText ($lf -replace "`n", "`r`n")))) {
+    if ($candidate -ceq $expected) { return $true }
+  }
+  return $false
+}
 function Find-LegacyRange([string]$Text) {
   $m = [regex]::Match($Text, '(?m)^' + [regex]::Escape($LegacyHeading) + '[ \t]*\r?$')
   if (-not $m.Success) { return $null }
@@ -136,8 +160,18 @@ $conflicts = 0
 
 $existingMd = ''
 if (Test-Path -LiteralPath $claudeMd -PathType Leaf) { $existingMd = Read-Text $claudeMd }
-try { $newMd = Get-NewClaudeMd $existingMd ([bool]$Uninstall) } catch { Write-Host ('PRECHECK FAILED (exit 3): ' + $_.Exception.Message) -ForegroundColor Red; exit 3 }
-if ($newMd -ceq $existingMd) { [void]$plan.Add('[SKIP] CLAUDE.md (sem mudanca)') }
+$blockConflict = $false
+try {
+  # So ha conflito quando um bloco marcado existe e NAO confere com o manifest.
+  # Secao legada sem marcadores continua sendo adotada normalmente.
+  if (($null -ne (Find-BlockRange $existingMd)) -and (-not (Test-ManagedBlock $existingMd))) { $blockConflict = $true }
+  $newMd = Get-NewClaudeMd $existingMd ([bool]$Uninstall)
+} catch { Write-Host ('PRECHECK FAILED (exit 3): ' + $_.Exception.Message) -ForegroundColor Red; exit 3 }
+if ($blockConflict) {
+  [void]$plan.Add('[CONFLICT] CLAUDE.md (bloco gerenciado editado pelo usuario; preservado)')
+  $conflicts++
+}
+elseif ($newMd -ceq $existingMd) { [void]$plan.Add('[SKIP] CLAUDE.md (sem mudanca)') }
 else {
   $adopt = ($null -eq (Find-BlockRange $existingMd)) -and ($null -ne (Find-LegacyRange $existingMd)) -and (-not $Uninstall)
   $tag = 'UPDATE'; if ($Uninstall) { $tag = 'REMOVE-BLOCK' } elseif ($adopt) { $tag = 'ADOPT' } elseif (-not (Test-Path -LiteralPath $claudeMd)) { $tag = 'CREATE' }
@@ -146,6 +180,10 @@ else {
 }
 
 if ($Uninstall) {
+  # Desinstalacao parcial: qualquer item preservado por conflito (bloco ou
+  # skill) mantem o manifest -- e o registro dos arquivos modificados -- para
+  # que o conflito continue detectavel na proxima rodada.
+  $partial = $blockConflict
   $uninstallRels = New-Object System.Collections.ArrayList
   foreach ($k in $desired.Keys) { [void]$uninstallRels.Add([string]$k) }
   if ($manifest -and $manifest.files) { foreach ($k in $manifest.files.PSObject.Properties.Name) { if (-not $uninstallRels.Contains([string]$k)) { [void]$uninstallRels.Add([string]$k) } } }
@@ -153,9 +191,12 @@ if ($Uninstall) {
     $dst = Join-Path $skillDst ($rel.Replace('/', '\'))
     if (-not (Test-Path -LiteralPath $dst -PathType Leaf)) { continue }
     if ((Get-Sha $dst) -ceq (Get-ManifestHash $rel)) { [void]$plan.Add('[REMOVE] skills/' + $SkillName + '/' + $rel); [void]$actions.Add(@{ kind = 'delete'; path = $dst }) }
-    else { [void]$plan.Add('[PRESERVE] skills/' + $SkillName + '/' + $rel + ' (modificado pelo usuario ou nao gerenciado)') }
+    else { [void]$plan.Add('[PRESERVE] skills/' + $SkillName + '/' + $rel + ' (modificado pelo usuario ou nao gerenciado)'); $partial = $true }
   }
-  if (Test-Path -LiteralPath $manifestPath) { [void]$actions.Add(@{ kind = 'delete'; path = $manifestPath }) }
+  if (Test-Path -LiteralPath $manifestPath) {
+    if ($partial) { [void]$plan.Add('[KEEP] manifest (desinstalacao parcial; registro de conflitos preservado)') }
+    else { [void]$actions.Add(@{ kind = 'delete'; path = $manifestPath }) }
+  }
 } else {
   foreach ($rel in $desired.Keys) {
     $dst = Join-Path $skillDst ($rel.Replace('/', '\'))
@@ -204,7 +245,11 @@ try {
       if ((Test-Path -LiteralPath $dst -PathType Leaf) -and ((Get-Sha $dst) -ceq $desired[$rel].hash)) { $files[$rel] = $desired[$rel].hash }
       elseif ($null -ne (Get-ManifestHash $rel)) { $files[$rel] = (Get-ManifestHash $rel) }
     }
-    $m = [ordered]@{ schema = 1; component = 'claude-hybrid'; block_sha256 = (Get-ShaText $blockBody); files = $files }
+    # Bloco conflitado nao foi reescrito: mantem o hash antigo para o conflito
+    # continuar detectavel (registro preservado, sem novo mecanismo).
+    $blockHash = Get-ManifestBlockHash
+    if ((-not $blockConflict) -or [string]::IsNullOrEmpty($blockHash)) { $blockHash = Get-ShaText $blockBody }
+    $m = [ordered]@{ schema = 1; component = 'claude-hybrid'; block_sha256 = $blockHash; files = $files }
     Write-Text $manifestPath (($m | ConvertTo-Json -Depth 6) + "`n")
   }
 }
