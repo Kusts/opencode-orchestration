@@ -123,6 +123,8 @@
     "arquivo": "scripts/v3/jev-gate-single-read.tests.ps1",
     "antes_da_mudanca": "Versao inicial (6 asserts, estruturais): 5/6 PASS, exit 1 - falha exata em flag-gate-not-duplicated-in-planner-loop",
     "depois_da_mudanca": "Versao reforcada (18 asserts, comportamentais + comparacao com o base): 18/18 PASS, exit 0 em powershell 5.1 e pwsh 7",
+    "checkout_raso_ci": "Correcao pos-PR #296: a comparacao byte-a-byte com o base e opcional, protegida por 'git cat-file -e <sha>^{commit}'. Em checkout raso sem o objeto, os 6 asserts dessa secao emitem [SKIP] explicito (nao FAIL) e os 12 asserts hermeticos (flag ausente/disabled com probe_calls=0, envelope literal 'unavailable / jev-advisory-flag-absent', plano/rota/DONE/authoritative inalterados, active com exatamente 1 chamada) executam integralmente. Provado em clone local --depth 1 (HEAD 66b8a51, objeto a09a1a2 ausente com cat-file exit 128): 12/12 PASS + 6 SKIP, exit 0 em pwsh e powershell 5.1; clone removido ao final. TASKD_BASE_SHA e uma seam somente de teste para exercitar o caminho SKIP sem clone.",
+
     "assercoes": [
       "3 guards estruturais de propriedade do gate",
       "absent-flag-trigger-did-fire",
