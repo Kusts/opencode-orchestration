@@ -241,9 +241,9 @@ $fbHop3 = Resolve-OrchestrationModelFallback -RequestedSelection $selCoder -Fail
 $haikuExclusion = @($fbHop3.PreventivelyExcluded | Where-Object { $_.Model -eq 'claude-agent/haiku' }) | Select-Object -First 1
 Add-ContractCheck "Coder Fallback Hop3 Proof Gated" ($fbHop3.Status -ceq 'EXHAUSTED_NO_ELIGIBLE_FALLBACK' -and $null -eq $fbHop3.FallbackModel -and $null -eq $fbHop3.CandidateModel -and (-not [bool]$fbHop3.IsAuthorized) -and $null -ne $haikuExclusion) "Muse falhou -> Haiku excluido sem capability proof ($([string]$haikuExclusion.Reason)); FallbackModel null, prova nunca fabricada (pure policy resolver; non-dispatch)"
 
-# 8. Reviewer high: Sonnet T3 (Terra fallback) + downgrade proibido no nivel da politica
+# 8. Reviewer high: Terra T3 (Sonnet alternativa) + downgrade proibido no nivel da politica
 $selRev = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Add-ContractCheck "Reviewer High Selection" ($selRev.Tier -eq 'T3' -and $selRev.CatalogModel -eq 'claude-agent/sonnet') "Reviewer high alocado em T3 Sonnet (Terra fallback) (policy-backed)"
+Add-ContractCheck "Reviewer High Selection" ($selRev.Tier -eq 'T3' -and $selRev.CatalogModel -eq 'openai/gpt-6.1-terra') "Reviewer high alocado em T3 Terra (Sonnet alternativa) (policy-backed)"
 Add-ContractCheck "Reviewer Downgrade Prohibited" ((@($policy.fallback_policy.prohibited_downgrades) -contains 'reviewer_high_critical') -and (@($policy.fallback_policy.prohibited_downgrades) -notcontains 'reviewer') -and (@($policy.fallback_policy.prohibited_downgrades) -contains 'security-reviewer') -and (@($policy.fallback_policy.prohibited_downgrades) -contains 'architect')) "prohibited_downgrades cobre reviewer high/critical (risk-qualified), security-reviewer e architect (policy-level)"
 
 # 9. T4 exige prova de falha vinculada a TaskId no kernel (nunca bool flags)
@@ -254,9 +254,9 @@ Add-ContractCheck "T4 Proof Gate Unknown TaskId" ([bool]$kpUnknown.ok -eq $false
 
 # 10. Bool flags deprecatados (T3FailureVerified/T3FailureReceipt) nunca escalam p/ T4
 $selRevFlags = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'critical' -T3FailureVerified $true -T3FailureReceipt 'verified:validator' -TaskId 'task-validator-nonexistent' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Add-ContractCheck "Deprecated Flags No Escalation Reviewer" ($selRevFlags.Tier -eq 'T3' -and $selRevFlags.CatalogModel -eq 'claude-agent/sonnet') "Bool flags deprecatados ignorados; reviewer permanece T3 Sonnet (nunca T4 Sol/Astra)"
+Add-ContractCheck "Deprecated Flags No Escalation Reviewer" ($selRevFlags.Tier -eq 'T3' -and $selRevFlags.CatalogModel -eq 'openai/gpt-6.1-terra') "Bool flags deprecatados ignorados; reviewer permanece T3 Terra (nunca T4 Sol/Astra)"
 $selCoderFlags = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:validator' -TaskId 'task-validator-nonexistent' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Add-ContractCheck "Deprecated Flags No Escalation Coder" ($selCoderFlags.Tier -eq 'T3' -and $selCoderFlags.CatalogModel -eq 'claude-agent/sonnet') "Bool flags deprecatados ignorados; coder permanece T3 Sonnet sem prova kernel do task"
+Add-ContractCheck "Deprecated Flags No Escalation Coder" ($selCoderFlags.Tier -eq 'T3' -and $selCoderFlags.CatalogModel -eq 'openai/gpt-6.1-terra') "Bool flags deprecatados ignorados; coder permanece T3 Terra sem prova kernel do task"
 
 # 11. Tester deterministico T0
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -NativeModelOverrideProven $true -IgnoreUserConfig $true

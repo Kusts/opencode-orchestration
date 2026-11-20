@@ -50,10 +50,10 @@ try {
     # 1. Repo real: policy e adapter concordam.
     $real = Test-OrchestrationModelChainConsistency -PolicyPath $policyPath -AdapterPath $adapterPath
     Assert-MC ([bool]$real.ok) '[MC1] policy real <-> adapter real' ([string]($real.errors -join ' | '))
-    Assert-MC (([string]$real.chain.T3Model -ceq 'claude-agent/sonnet')) '[MC2] T3 = sonnet' ([string]$real.chain.T3Model)
-    Assert-MC (([string]$real.chain.T4Model -ceq 'claude-agent/opus')) '[MC2] T4 = opus' ([string]$real.chain.T4Model)
+    Assert-MC (([string]$real.chain.T3Model -ceq 'openai/gpt-6.1-terra')) '[MC2] T3 = terra' ([string]$real.chain.T3Model)
+    Assert-MC (([string]$real.chain.T4Model -ceq 'openai/gpt-6.1-sol')) '[MC2] T4 = sol' ([string]$real.chain.T4Model)
     Assert-MC (([string]$real.chain.ExceptionalModel -ceq 'openai/gpt-6-astra')) '[MC2] exceptional = astra' ([string]$real.chain.ExceptionalModel)
-    Assert-MC ((@($real.chain.T4AlternativeModels) -contains 'openai/gpt-6.1-sol')) '[MC2] sol = candidato T4' ([string]($real.chain.T4AlternativeModels -join ','))
+    Assert-MC ((@($real.chain.T4AlternativeModels) -contains 'claude-agent/opus')) '[MC2] opus = alternativa T4' ([string]($real.chain.T4AlternativeModels -join ','))
     Assert-MC ([bool]$real.chain.FablePresent -and [bool]$real.chain.FableGated) '[MC2] fable presente e gated' ''
 
     # 2. Drift de politica: T3 promovido para Sol.
@@ -130,7 +130,7 @@ try {
 
     # 13. Policy T4 alternatives sem Sol.
     $p11 = Join-Path $tmp 'policy-no-sol.json'
-    Write-MCPolicy -Path $p11 -Mutate { param($p) $p.tiers.T4.alternatives = @('claude_opus') }
+    Write-MCPolicy -Path $p11 -Mutate { param($p) $p.tiers.T4.alternatives = @() }
     $rNoSol = Test-OrchestrationModelChainConsistency -PolicyPath $p11 -AdapterPath $adapterPath
     Assert-MC ((@($rNoSol.errors) -join ' | ') -match 't4-sol-candidate-missing') '[MC14] Sol removido de alternatives e recusado' ([string]($rNoSol.errors -join ' | '))
 

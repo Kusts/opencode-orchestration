@@ -16,7 +16,7 @@ function Assert-V14([bool]$Condition,[string]$Name) {
 }
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-V14 ($p.Status -eq 'POLICY_LOADED') 'policy-loads'
-Assert-V14 ($p.PolicyVersion -eq '1.6.0') 'policy-v1.6'
+Assert-V14 ($p.PolicyVersion -eq '1.6.1') 'policy-v1.6.1'
 $pol = $p.Policy
 $expectedProviders = @{
     'mimo' = @{ Provider='opencode'; Model='opencode/mimo-v2.6-flash-free' }
@@ -46,8 +46,8 @@ Assert-V14 ($pol.tiers.T2.fallback -eq 'muse') 'T2-muse-fallback'
 Assert-V14 (([string]$pol.tiers.T2.alternatives[0] -ceq 'deepseek_go') -and ([string]$pol.tiers.T2.alternatives[1] -ceq 'muse') -and ([string]$pol.tiers.T2.alternatives[2] -ceq 'claude_haiku')) 'T2-luna-deepseek_go-muse-haiku-order'
 Assert-V14 (([string]$pol.models.deepseek_go.fallback_candidates[0] -ceq 'muse') -and ([string]$pol.models.deepseek_go.fallback_candidates[1] -ceq 'claude_haiku') -and ([string]$pol.models.deepseek_go.fallback_candidates[2] -ceq 'luna')) 'T2-deepseek-model-fallback-order'
 Assert-V14 (([string]$pol.models.muse.fallback_candidates[0] -ceq 'claude_haiku') -and ([string]$pol.models.muse.fallback_candidates[1] -ceq 'luna')) 'T2-muse-model-fallback-order'
-Assert-V14 ($pol.tiers.T3.primary -eq 'claude_sonnet' -and $pol.tiers.T3.fallback -eq 'terra') 'T3-sonnet-terra-fallback'
-Assert-V14 ($pol.tiers.T4.primary -eq 'claude_opus' -and $pol.tiers.T4.fallback -eq 'sol') 'T4-opus-sol-fallback'
+Assert-V14 ($pol.tiers.T3.primary -eq 'terra' -and $pol.tiers.T3.fallback -eq 'claude_sonnet') 'T3-terra-sonnet-fallback'
+Assert-V14 ($pol.tiers.T4.primary -eq 'sol' -and $pol.tiers.T4.fallback -eq 'claude_opus') 'T4-sol-opus-fallback'
 Assert-V14 ($pol.tiers.T4.exceptional -eq 'astra') 'T4-astra'
 Assert-V14 ($pol.cost_policy.t4_requires_authorization -eq $false) 'T4-auto-no-manual-cost-authorization'
 Assert-V14 ([bool]$pol.cost_policy.astra_requires_exceptional_authorization -eq $true) 'astra-requires-exceptional-budget-authorization'
@@ -77,7 +77,7 @@ $loopOk = $true
 foreach ($lm in $loopModels) { $fb = @($pol.models.$lm.fallback_candidates); if ($fb -contains $lm) { $loopOk = $false } }
 Assert-V14 ($loopOk -and (@($pol.models.luna.fallback_candidates).Count -eq 0)) 'T2-fallback-no-self-loop-luna-terminal'
 $sT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'claude-agent/sonnet') 'T3-runtime-sonnet'
+Assert-V14 ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'openai/gpt-6.1-terra') 'T3-runtime-sonnet'
 $sT4Hold = Resolve-OrchestrationModelSelection -AgentName 'coder' -FailureCount 3 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sT4Hold.Tier -ne 'T4') 'no-unproven-T3-failure-escalation'
 # DEPRECATED_UNTRUSTED: arbitrary bool/string never authorizes T4 without kernel-owned proof.
@@ -89,7 +89,7 @@ Assert-V14 ($sT4.Tier -eq 'T3') 'arbitrary-T3-receipt-fail-closed-T3'
 $sCoderLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
 Assert-V14 ($sCoderLowFc5.Tier -eq 'T2' -and $sCoderLowFc5.CatalogModel -eq 'openai/gpt-6-luna') 'failurecount-never-promotes-coder'
 $sAdvLowFc5 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sAdvLowFc5.Tier -eq 'T3' -and $sAdvLowFc5.CatalogModel -eq 'claude-agent/sonnet') 'failurecount-never-promotes-advisor'
+Assert-V14 ($sAdvLowFc5.Tier -eq 'T3' -and $sAdvLowFc5.CatalogModel -eq 'openai/gpt-6.1-terra') 'failurecount-never-promotes-advisor'
 # ROUTER-V14-ADVISOR-T3-ONLY: advisor remains T3-minimum; new matrix starts at
 # Sonnet and keeps Terra as fallback. T2 remains prohibited; T4 proof-gated.
 # Canonical registry contract (catches drift): role profile must pin
@@ -97,9 +97,9 @@ Assert-V14 ($sAdvLowFc5.Tier -eq 'T3' -and $sAdvLowFc5.CatalogModel -eq 'claude-
 $advProfile = $pol.role_profiles.PSObject.Properties['engineering-advisor'].Value
 $advAdmissible = @($advProfile.admissible_tiers)
 $advProhibited = @($advProfile.prohibited_tiers)
-Assert-V14 ([string]$advProfile.default_model -eq 'claude_sonnet' -and [string]$advProfile.default_tier -eq 'T3' -and ($advAdmissible -contains 'T3') -and ($advAdmissible -contains 'T4') -and -not ($advAdmissible -contains 'T2') -and $advAdmissible.Count -eq 2 -and ($advProhibited -contains 'T2')) 'advisor-registry-T3-sonnet-only-no-T2'
+Assert-V14 ([string]$advProfile.default_model -eq 'terra' -and [string]$advProfile.default_tier -eq 'T3' -and ($advAdmissible -contains 'T3') -and ($advAdmissible -contains 'T4') -and -not ($advAdmissible -contains 'T2') -and $advAdmissible.Count -eq 2 -and ($advProhibited -contains 'T2')) 'advisor-registry-T3-terra-only-no-T2'
 $sAdvSimpleFc0 = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 0 -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-V14 ($sAdvSimpleFc0.Tier -eq 'T3' -and $sAdvSimpleFc0.CatalogModel -eq 'claude-agent/sonnet') 'advisor-simple-low-always-T3-sonnet'
+Assert-V14 ($sAdvSimpleFc0.Tier -eq 'T3' -and $sAdvSimpleFc0.CatalogModel -eq 'openai/gpt-6.1-terra') 'advisor-simple-low-always-T3-sonnet'
 $sT2Base = Resolve-OrchestrationModelSelection -AgentName 'coder' -IgnoreUserConfig $true -NativeModelOverrideProven $true
 $fT2Exhausted = Resolve-OrchestrationModelFallback -RequestedSelection $sT2Base -FailedModel 'opencode-go/deepseek-v4.1-flash' -AttemptedModels @('opencode-go/deepseek-v4.1-flash','opencode-go/muse-spark-1.3-contributor','claude-agent/haiku','openai/gpt-6-luna') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-V14 ($fT2Exhausted.Status -in @('FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF','EXHAUSTED_NO_ELIGIBLE_FALLBACK') -and $fT2Exhausted.FallbackModel -eq $null -and -not [bool]$fT2Exhausted.IsAuthorized) 't2-exhausted-no-replay-without-no-start-proof'

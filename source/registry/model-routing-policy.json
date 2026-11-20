@@ -1,6 +1,6 @@
 {
   "schema_version": "model-routing-policy/v1",
-  "policy_version": "1.6.0",
+  "policy_version": "1.6.1",
   "providers": {
     "opencode": {
       "name": "OpenCode Console",
@@ -787,26 +787,26 @@
     },
     "T3": {
       "name": "Capable",
-      "primary": "claude_sonnet",
+      "primary": "terra",
       "alternatives": [
-        "terra",
+        "claude_sonnet",
         "deepseek_go",
         "muse"
       ],
       "relative_cost": 1,
-      "description": "Capable reasoning (Sonnet); transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: deepseek_go/muse), never as equal capability",
-      "fallback": "terra"
+      "description": "Capable reasoning (Terra); Sonnet remains a same-tier alternative; transport failure may degrade to T2 only for roles admissible to T2 (authorized T2 candidates: deepseek_go/muse), never as equal capability",
+      "fallback": "claude_sonnet"
     },
     "T4": {
       "name": "Frontier",
-      "primary": "claude_opus",
+      "primary": "sol",
       "exceptional": "astra",
       "alternatives": [
-        "sol"
+        "claude_opus"
       ],
       "relative_cost": 8,
-      "description": "Critical reasoning after proven T3 failure; Opus->Sol same-tier technical candidates only; downgraded audit-only DeepSeek Go->Muse T2 candidates only for roles admissible to T2 (policy-level candidates, no runtime retry); Astra/Fable exceptional and proof-gated, never automatic",
-      "fallback": "sol"
+      "description": "Critical reasoning after proven T3 failure; Sol primary with Opus as same-tier technical alternative only; downgraded audit-only DeepSeek Go->Muse T2 candidates only for roles admissible to T2 (policy-level candidates, no runtime retry); Astra/Fable exceptional and proof-gated, never automatic",
+      "fallback": "claude_opus"
     }
   },
   "role_profiles": {
@@ -1023,9 +1023,10 @@
       ]
     },
     "reviewer": {
-      "default_model": "claude_sonnet",
+      "default_model": "terra",
       "default_tier": "T3",
       "alternatives": [
+        "sol",
         "claude_opus"
       ],
       "admissible_tiers": [
@@ -1039,9 +1040,10 @@
       ]
     },
     "debugger": {
-      "default_model": "claude_sonnet",
+      "default_model": "terra",
       "default_tier": "T3",
       "alternatives": [
+        "sol",
         "claude_opus"
       ],
       "admissible_tiers": [
@@ -1055,13 +1057,12 @@
       ]
     },
     "architect": {
-      "default_model": "claude_sonnet",
+      "default_model": "terra",
       "default_tier": "T3",
       "alternatives": [
-        "terra",
-        "claude_opus",
         "sol",
-        "astra"
+        "astra",
+        "claude_opus"
       ],
       "admissible_tiers": [
         "T3",
@@ -1074,13 +1075,13 @@
       ]
     },
     "security-reviewer": {
-      "default_model": "claude_sonnet",
+      "default_model": "terra",
       "default_tier": "T3",
       "exceptional": "astra",
       "alternatives": [
-        "claude_opus",
         "sol",
-        "astra"
+        "astra",
+        "claude_opus"
       ],
       "admissible_tiers": [
         "T3",
@@ -1147,15 +1148,14 @@
       ]
     },
     "engineering-advisor": {
-      "default_model": "claude_sonnet",
+      "default_model": "terra",
       "default_tier": "T3",
-      "advanced": "claude_opus",
+      "advanced": "sol",
       "exceptional": "astra",
       "alternatives": [
-        "terra",
-        "claude_opus",
         "sol",
-        "astra"
+        "astra",
+        "claude_opus"
       ],
       "admissible_tiers": [
         "T3",
@@ -1182,8 +1182,8 @@
     "fallback_resolution_note": "Same-tier T1 Luna availability candidate only with independent proof of non-start; no generic T1 chain, no T2/T3/T4."
   },
   "advisor": {
-    "default": "claude_sonnet",
-    "advanced": "claude_opus",
+    "default": "terra",
+    "advanced": "sol",
     "exceptional": "astra",
     "exceptional_conditions": [
       "technical_justification",

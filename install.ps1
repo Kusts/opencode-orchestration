@@ -56,6 +56,10 @@ param(
   [string]$BinaryV2 = '',
   [switch]$ProvisionRuntime,
   [switch]$Clean,
+  # Opt-in: instala a integracao Claude Code + Orca (source/claude -> ~/.claude).
+  # Sem o switch o install e identico ao standalone. ClaudeHome so p/ testes.
+  [switch]$ClaudeHybrid,
+  [string]$ClaudeHome = '',
   [Parameter(DontShow)]
   [ValidateSet('backup', 'stage', 'cas', 'apply-half', 'apply-json', 'apply-last', 'manifest')]
   [string]$InjectFailureAfter = '',
@@ -69,6 +73,16 @@ param(
   [ValidateSet('Off', 'Shadow', 'Canary', 'Active')]
   [string]$BundleMode = 'Off'
 )
+
+function Invoke-ClaudeHybridStep {
+  if (-not $ClaudeHybrid) { return }
+  $ch = Join-Path $RepoRoot 'scripts\claude\install-claude-hybrid.ps1'
+  $chArgs = @{ RepoRoot = $RepoRoot }
+  if (-not [string]::IsNullOrWhiteSpace($ClaudeHome)) { $chArgs.ClaudeHome = $ClaudeHome }
+  if ($WhatIfPreference) { $chArgs.WhatIf = $true }
+  & $ch @chArgs
+  if ($LASTEXITCODE -ne 0) { Write-Host ('Claude hybrid falhou (exit ' + $LASTEXITCODE + '); instalacao OpenCode ja concluida e nao foi revertida.') -ForegroundColor Red; exit $LASTEXITCODE }
+}
 
 function Get-InstallResultSummary($Plan) {
   $counts = [ordered]@{ installed = 0; unchanged = 0; preserved = 0; conflict = 0; failed = 0 }
@@ -1387,6 +1401,7 @@ if ($runtimeMode -eq 'Both') {
   Write-Host ('  wrapper v1: ' + (Join-Path $BothProfileRoot 'bin\opencode-v1.ps1')) -ForegroundColor DarkGray
   Write-Host ('  wrapper v2: ' + (Join-Path $BothProfileRoot 'bin\opencode-v2.ps1')) -ForegroundColor DarkGray
   Write-Host 'Use cada perfil pelo seu wrapper (XDG isolado por processo).' -ForegroundColor Yellow
+  Invoke-ClaudeHybridStep
   exit 0
 }
 $runtimeBin = Get-Command 'opencode' -ErrorAction SilentlyContinue
@@ -2022,6 +2037,7 @@ if ($isWhatIf) {
   Write-Host ('RESULT: INSTALLED={0} UNCHANGED={1} PRESERVED={2} CONFLICT=0 FAILED=0' -f $whatIfSummary.installed, $whatIfSummary.unchanged, $whatIfSummary.preserved)
   Write-Host '[MANIFEST] config_ownership=orchestration-snapshot'
   Write-Host ('Plano: ' + $plan.Count + ' recurso(s). Nenhuma escrita realizada.') -ForegroundColor Cyan
+  Invoke-ClaudeHybridStep
   exit 0
 }
 
@@ -2624,5 +2640,6 @@ if (($configFileName -eq 'opencode.jsonc') -and $configHadComments) {
   Write-Host 'AVISO: comentarios do seu opencode.jsonc foram normalizados; original preservado no backup.' -ForegroundColor Yellow
 }
 Write-Host ("Backup: " + $bakDir + ' (' + $backupCount + ' arquivo(s))') -ForegroundColor DarkGray
+Invoke-ClaudeHybridStep
 Write-Host 'Reinicie o OpenCode para carregar AGENTS.md, agents, skills e plugin.' -ForegroundColor Yellow
 exit 0

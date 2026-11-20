@@ -181,11 +181,12 @@ $cliBadEvidence=Invoke-FallbackCli ($baseArgs+@('-AttemptEvidenceJson',"@$eviden
 Assert-MF ($cliBadEvidence.code -eq 3 -and $cliBadEvidence.json.status -eq 'HOLD_AMBIGUOUS_EXECUTION' -and $cliBadEvidence.json.reason -eq 'NO_START_PROOF_INVALID') 'malformed CLI evidence returns JSON HOLD and exit 3'
 Remove-Item -LiteralPath $cliTemp -Recurse -Force
 $high=Resolve-OrchestrationModelSelection -AgentName reviewer -TaskId $task -Risk high -Complexity simple -PolicyPath $policy -IgnoreUserConfig $true
-Assert-MF ($high.Tier -eq 'T3' -and $high.CatalogModel -eq 'claude-agent/sonnet') 'reviewer high selects T3 Sonnet'
-$reviewEvidence=New-NoStartEvidence $task 'reviewer-attempt' 'claude-agent/sonnet'
-$d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole reviewer -Risk high -FailedModel 'claude-agent/sonnet' -Failure '{"error":{"type":"tool.execution","message":"Model claude-agent/sonnet is not available"}}' -AttemptEvidence $reviewEvidence -AttemptId 'reviewer-attempt' -PolicyPath $policy
-# The policy's next candidate is asserted directly; this is not a risk-low routing override.
-Assert-MF ($d.Status -eq 'FALLBACK_AUTHORIZED' -and $d.NextModel -eq 'openai/gpt-6.1-terra') 'reviewer high next Terra'
+Assert-MF ($high.Tier -eq 'T3' -and $high.CatalogModel -eq 'openai/gpt-6.1-terra') 'reviewer high selects T3 Terra'
+$reviewEvidence=New-NoStartEvidence $task 'reviewer-attempt' 'openai/gpt-6.1-terra'
+$d=Get-OrchestrationModelFallbackDecision -TaskId $task -AttemptRole reviewer -Risk high -FailedModel 'openai/gpt-6.1-terra' -Failure '{"error":{"type":"tool.execution","message":"Model openai/gpt-6.1-terra is not available"}}' -AttemptEvidence $reviewEvidence -AttemptId 'reviewer-attempt' -PolicyPath $policy
+# T3 primary is Terra; the only same-tier alternative is claude-agent/Sonnet, which
+# needs independent Claude capability proof. Without it, reviewer high never downgrades to T2.
+Assert-MF ($d.Status -eq 'EXHAUSTED' -and $null -eq $d.NextModel) 'reviewer high has no authorized fallback without Claude capability proof'
 $low=Resolve-OrchestrationModelSelection -AgentName reviewer -TaskId $task -Risk low -Complexity simple -PolicyPath $policy -IgnoreUserConfig $true
 Assert-MF ($low.Tier -eq 'T2' -and $low.CatalogModel -eq 'openai/gpt-6-luna') 'reviewer low selects Luna T2'
 $coderChain=Get-OrchestrationModelFallbackChain -AttemptRole coder -TaskId $task -PolicyPath $policy

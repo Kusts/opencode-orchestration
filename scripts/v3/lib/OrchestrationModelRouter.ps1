@@ -36,7 +36,7 @@ $script:AgentModelAdmissibility = @{
         DefaultTier      = 'T3'
         AdmissibleTiers  = @('T3', 'T4')
         ProhibitedTiers  = @('T0', 'T1', 'T2')
-        ProhibitionNotes = 'Explicit user decision (ROUTER-V14-ADVISOR-T3-ONLY): advisor always starts at T3 Sonnet (Terra fallback); T2 prohibited (DeepSeek Go and Muse both absent from engineering-advisor eligible_roles; profile prohibits T2 via role_profiles default_model=claude_sonnet/default_tier=T3). T4 only via kernel-owned T3 proof.'
+        ProhibitionNotes = 'Explicit user decision (ROUTER-V14-ADVISOR-T3-ONLY): advisor always starts at T3 Terra (Sonnet same-tier alternative); T2 prohibited (DeepSeek Go and Muse both absent from engineering-advisor eligible_roles; profile prohibits T2 via role_profiles default_model=terra/default_tier=T3). T4 only via kernel-owned T3 proof.'
     }
     'coder' = @{
         DefaultTier      = 'T2'
@@ -678,7 +678,7 @@ function Resolve-CatalogModel {
     $polVer = if ($policyRes.Status -eq 'POLICY_LOADED') { [string]$policyRes.PolicyVersion } else { '1.3.0' }
 
     # T4 is a policy-authorized tier; the caller must prove T3 non-resolution before selection.
-    # Astra cannot be selected directly: it is only an exceptional alternative after a verified Opus failure.
+    # Astra cannot be selected directly: it is only an exceptional alternative after a verified T4 primary (Sol) failure.
     if ($Tier -eq 'T4') {
         $authorized = $true
         $authSource = 'AUTO_ROUTER_POLICY_V14'
@@ -713,7 +713,7 @@ function Resolve-CatalogModel {
 function Test-OrchestrationModelKernelFailureProof {
     <#
     .SYNOPSIS
-        Kernel-owned failure-proof gate for T3 Sonnet -> T4 Opus and Opus -> Astra escalation.
+        Kernel-owned failure-proof gate for T3 Terra -> T4 Sol and Sol -> Astra escalation.
     .DESCRIPTION
         Read-only. Calls Get-OrchestrationTaskModelFailureProof for TaskId +
         RequiredTier and requires: proof ok, policy_hash equals current routing
@@ -1188,7 +1188,7 @@ function Resolve-OrchestrationModelFallback {
         # budget precondition, evaluated before capability proof gates.
         # RequiresCost needs per-call cost authorization; Exceptional needs
         # exceptional budget authorization. Neither is inferred from tier,
-        # failure count, receipts, or the T4/Opus proof gates below.
+        # failure count, receipts, or the T4/Sol proof gates below.
         if ([bool]$CandObj.RequiresCost) {
             $hasCostAuth = ([bool]$ProviderCostAuthorized -or ([string]$env:OPENCODE_T4_AUTHORIZED -ieq 'true'))
             if (-not $hasCostAuth) {
@@ -1219,7 +1219,7 @@ function Resolve-OrchestrationModelFallback {
         }
 
         # Astra is not a generic outage fallback. It requires kernel-owned T4
-        # (canonical primary, currently Opus) failure proof for the exact task
+        # (canonical primary, currently Sol) failure proof for the exact task
         # plus the attempted canonical T4 primary.
         if ($CandObj.Exceptional -or $mId -match 'astra') {
             $canonT4Attempt = $canonicalT4Primary
@@ -1270,10 +1270,10 @@ function Resolve-OrchestrationModelFallback {
     }
 
     # Fable e o unico fallback de Astra: honra astra.fallback_candidates ou fail-closed.
-    # Quando FailedModel e o Astra canonico, nenhum T4 generico (ex. Opus) pode
+    # Quando FailedModel e o Astra canonico, nenhum T4 generico (ex. Sol) pode
     # passar na frente. Somente indisponibilidade provada pre-execucao autoriza
     # Fable; qualquer outro caso fail-closed sem fallback generico. A kernel-owned
-    # incapacity path (T3 Sonnet->T4 Opus, Opus->Astra) permanece separada e nao e substituida
+    # incapacity path (T3 Terra->T4 Sol, Sol->Astra) permanece separada e nao e substituida
     # por este caminho de disponibilidade.
     $astraAvailReasons = $script:AvailabilityTriggerReasons
     $isAstraFailed = ($FailedModel -ceq $astraCanonicalId)
@@ -1430,7 +1430,7 @@ function Resolve-OrchestrationModelFallback {
     }
 
     # On allowlisted technical faults, T3/T4 enumerate the explicitly admitted
-    # SAME-TIER order first (Sonnet for T3; Opus->Sol order for T4 retained as
+    # SAME-TIER order first (Terra for T3; Sol->Opus order for T4 retained as
     # declarative candidates only) for exclusions/audit, then policy-level T2
     # downgrade candidates (DeepSeek Go then Muse) strictly for roles whose
     # AgentModelAdmissibility admits T2. Nothing here authorizes: the HOLD
@@ -2046,12 +2046,12 @@ function Resolve-OrchestrationModelSelection {
             $reason = 'Economical T2 Luna for simple low-risk review.'
         } else {
             $selectedTier = 'T3'
-            $reason = 'Capable T3 Sonnet for review (Terra fallback).'
+            $reason = 'Capable T3 Terra for review (Sonnet alternative).'
         }
     }
     elseif ($cleanAgent -eq 'security-reviewer') {
         $selectedTier = 'T3'
-        $reason = 'Security-reviewer starts at T3 Sonnet (Terra fallback); no T2 downgrade.'
+        $reason = 'Security-reviewer starts at T3 Terra (Sonnet alternative); no T2 downgrade.'
     }
     elseif ($cleanAgent -in @('researcher','explorer','docs-manager')) {
         # These roles start with T1 for lightweight work. An explicit complex
@@ -2067,13 +2067,13 @@ function Resolve-OrchestrationModelSelection {
     }
     elseif ($cleanAgent -eq 'engineering-advisor') {
         # ROUTER-V14-ADVISOR-T3-ONLY (explicit user decision): advisor always
-        # starts at T3 Sonnet (Terra fallback) regardless of
+        # starts at T3 Terra (Sonnet alternative) regardless of
         # risk/complexity/FailureCount. T2 DeepSeek Go/Muse both absent from
         # engineering-advisor eligibility and profile prohibits T2 via
-        # role_profiles default_model=claude_sonnet/default_tier=T3. T4 only via
+        # role_profiles default_model=terra/default_tier=T3. T4 only via
         # kernel-owned proof.
         $selectedTier = 'T3'
-        $reason = 'Engineering-advisor always uses T3 Sonnet (Terra fallback); T4 only via kernel-owned T3 proof.'
+        $reason = 'Engineering-advisor always uses T3 Terra (Sonnet alternative); T4 only via kernel-owned T3 proof.'
     }
     elseif ($cleanAgent -eq 'coder') {
         # v1.4 matrix: FailureCount never promotes Coder. Complexity=complex
@@ -2081,7 +2081,7 @@ function Resolve-OrchestrationModelSelection {
         # Luna (T2 Luna/DeepSeek Go/Muse/Haiku policy candidate order).
         if ($Complexity -eq 'complex') {
             $selectedTier = 'T3'
-            $reason = 'Coder uses T3 Sonnet (Terra fallback) for complex work.'
+            $reason = 'Coder uses T3 Terra (Sonnet alternative) for complex work.'
         } else {
             $selectedTier = 'T2'
             $reason = 'Coder defaults to economical T2 Luna.'
@@ -2089,7 +2089,7 @@ function Resolve-OrchestrationModelSelection {
     }
     elseif ($cleanAgent -eq 'debugger') {
         $selectedTier = 'T3'
-        $reason = 'Debugger uses T3 Sonnet (Terra fallback) for root-cause analysis.'
+        $reason = 'Debugger uses T3 Terra (Sonnet alternative) for root-cause analysis.'
     }
 
     elseif ($cleanAgent -eq 'tester') {
@@ -2108,9 +2108,9 @@ function Resolve-OrchestrationModelSelection {
     # Automatic frontier escalation requires kernel-owned failure proof for
     # the exact task (policy_hash + canonical model/provider match).
     # DEPRECATED_UNTRUSTED T3FailureVerified/T3FailureReceipt/FailureCount are
-    # ignored. model-select is the Planner entry point for T3->Opus and,
-    # after a persisted failed Opus attempt, Opus->Astra. The T4 check runs
-    # FIRST: after Opus fails, the head attempt is Opus (T4) while the valid
+    # ignored. model-select is the Planner entry point for T3->Sol and,
+    # after a persisted failed Sol attempt, Sol->Astra. The T4 check runs
+    # FIRST: after Sol fails, the head attempt is Sol (T4) while the valid
     # T3 proof lives in verification_history, so a head T3 check alone
     # would hide the Astra escalation.
     $selUsesAstra = $false
@@ -2146,19 +2146,19 @@ function Resolve-OrchestrationModelSelection {
             if ($astraOk) {
                 if ($astraExcAuth) {
                     $selectedTier = 'T4'
-                    $reason = 'Kernel-owned T4 (Opus) failure proof; policy escalates to T4 Astra.'
+                    $reason = 'Kernel-owned T4 (Sol) failure proof; policy escalates to T4 Astra.'
                     $selUsesAstra = $true
                     $selT4Proof = $kpT4Sel.proof
                 } else {
-                    # Fail closed: valid Opus proof but no exceptional budget.
-                    # Do not retry the already-proven-failed Opus and do not
+                    # Fail closed: valid Sol proof but no exceptional budget.
+                    # Do not retry the already-proven-failed Sol and do not
                     # return an executable Astra selection; the caller must
                     # authorize the exceptional budget explicitly.
                     return [pscustomobject]@{
                         Status                    = 'REJECTED'
                         DecisionStatus            = 'ASTRA_BUDGET_AUTHORIZATION_REQUIRED'
-                        Reason                    = 'Kernel-owned T4 (Opus) failure proof is valid but Astra requires dedicated exceptional budget authorization (OPENCODE_ASTRA_AUTHORIZED=true); failing closed without retrying proven-failed Opus.'
-                        selection_reason          = 'Kernel-owned T4 (Opus) failure proof is valid but Astra requires dedicated exceptional budget authorization (OPENCODE_ASTRA_AUTHORIZED=true); failing closed without retrying proven-failed Opus.'
+                        Reason                    = 'Kernel-owned T4 (Sol) failure proof is valid but Astra requires dedicated exceptional budget authorization (OPENCODE_ASTRA_AUTHORIZED=true); failing closed without retrying proven-failed Sol.'
+                        selection_reason          = 'Kernel-owned T4 (Sol) failure proof is valid but Astra requires dedicated exceptional budget authorization (OPENCODE_ASTRA_AUTHORIZED=true); failing closed without retrying proven-failed Sol.'
                         Agent                     = $cleanAgent
                         requested_role            = $cleanAgent
                         Tier                      = 'T4'
@@ -2184,16 +2184,16 @@ function Resolve-OrchestrationModelSelection {
                     }
                 }
             } else {
-                # Fail closed: valid Opus proof but Astra is unavailable under
+                # Fail closed: valid Sol proof but Astra is unavailable under
                 # policy (disabled, role-ineligible, provider-disabled). Never
-                # replay the already-proven-failed Opus (nor Sol/Astra
+                # replay the already-proven-failed Sol (nor Opus/Astra
                 # substitutes): the T4 incapacity path is exhausted and no
                 # executable model remains.
                 return [pscustomobject]@{
                     Status                    = 'REJECTED'
                     DecisionStatus            = 'ASTRA_UNAVAILABLE_AFTER_OPUS_FAILURE'
-                    Reason                    = 'Kernel-owned T4 (Opus) failure proof is valid but Astra is unavailable under policy; failing closed without retrying proven-failed Opus, Sol or Astra.'
-                    selection_reason          = 'Kernel-owned T4 (Opus) failure proof is valid but Astra is unavailable under policy; failing closed without retrying proven-failed Opus, Sol or Astra.'
+                    Reason                    = 'Kernel-owned T4 (Sol) failure proof is valid but Astra is unavailable under policy; failing closed without retrying proven-failed Sol, Opus or Astra.'
+                    selection_reason          = 'Kernel-owned T4 (Sol) failure proof is valid but Astra is unavailable under policy; failing closed without retrying proven-failed Sol, Opus or Astra.'
                     Agent                     = $cleanAgent
                     requested_role            = $cleanAgent
                     Tier                      = 'T4'
@@ -2222,7 +2222,7 @@ function Resolve-OrchestrationModelSelection {
             $kpT3Sel = Test-OrchestrationModelKernelFailureProof -TaskId $TaskId -RequiredTier 'T3' -TasksDir $TasksDir -RepoRoot $RepoRoot -PolicyPath $PolicyPath
             if ([bool]$kpT3Sel.ok) {
                 $selectedTier = 'T4'
-                $reason = 'Kernel-owned T3 failure proof; policy escalates to T4 Opus.'
+                $reason = 'Kernel-owned T3 failure proof; policy escalates to T4 Sol.'
                 $selT3Proof = $kpT3Sel.proof
             }
         }
@@ -2241,16 +2241,16 @@ function Resolve-OrchestrationModelSelection {
     }
 
     # Advisor check (ROUTER-V14-ADVISOR-T3-ONLY): engineering-advisor NEVER
-    # T0/T1/T2; explicit user decision forces T3 Sonnet (Terra fallback) minimum.
+    # T0/T1/T2; explicit user decision forces T3 Terra (Sonnet alternative) minimum.
     if ($cleanAgent -eq 'engineering-advisor' -and $selectedTier -in @('T0', 'T1', 'T2')) {
         $selectedTier = 'T3'
-        $reason = "Advisor invariant enforced: engineering-advisor forced to T3 minimum (always Sonnet with Terra fallback; T4 only via kernel-owned proof)."
+        $reason = "Advisor invariant enforced: engineering-advisor forced to T3 minimum (always Terra with Sonnet alternative; T4 only via kernel-owned proof)."
     }
 
-    # Coder T4 check: coder NEVER T4 without kernel-owned proof (T3 for Opus,
+    # Coder T4 check: coder NEVER T4 without kernel-owned proof (T3 for Sol,
     # T4 for Astra). FailureCount alone never authorizes; proof implies
     # persisted failures. T4 is checked first so the Astra path survives its
-    # own head (Opus) while the T3 proof lives in history.
+    # own head (Sol) while the T3 proof lives in history.
     if ($cleanAgent -eq 'coder' -and $selectedTier -eq 'T4') {
         $coderKeep = $false
         if ($selUsesAstra -or ($null -ne $selT4Proof) -or ($null -ne $selT3Proof)) {
@@ -2277,8 +2277,8 @@ function Resolve-OrchestrationModelSelection {
         }
     }
 
-    # Visual capability upgrade: eligible agents may use T3 (Sonnet, Terra
-    # fallback) for visual/document tasks. Researcher stays T1: visual never
+    # Visual capability upgrade: eligible agents may use T3 (Terra, Sonnet
+    # alternative) for visual/document tasks. Researcher stays T1: visual never
     # auto-upgrades researcher to T3.
     $visualRequested = $RequiresVisualAnalysis
     if (-not $visualRequested -and -not [string]::IsNullOrWhiteSpace($RequiredCapability)) {
@@ -2290,7 +2290,7 @@ function Resolve-OrchestrationModelSelection {
     $terraEligibleAgents = @('frontend-engineer','product-designer','architect')
     if (-not $selUsesAstra -and $visualRequested -and ($terraEligibleAgents -contains $cleanAgent) -and ($admissibleTiers -contains 'T3')) {
         $selectedTier = 'T3'
-        $reason = "Capable tier T3 selected for visual/document capability (Sonnet, Terra fallback)."
+        $reason = "Capable tier T3 selected for visual/document capability (Terra, Sonnet alternative)."
     }
 
     # Catalog and authorization check: separate technical justification from explicit cost authorization
@@ -2304,7 +2304,7 @@ function Resolve-OrchestrationModelSelection {
         $astraExcAuth2 = ([string]$env:OPENCODE_ASTRA_AUTHORIZED -ieq 'true')
         if (-not $astraExcAuth2) {
             $selUsesAstra = $false
-            $reason = 'Kernel-owned T4 (Opus) failure proof; Astra exceptional budget authorization absent, fail closed without executable Astra.'
+            $reason = 'Kernel-owned T4 (Sol) failure proof; Astra exceptional budget authorization absent, fail closed without executable Astra.'
         } else {
             $astraId = ''
             $astraProv = ''
@@ -2323,7 +2323,7 @@ function Resolve-OrchestrationModelSelection {
                 $catalogRes.ProviderCostAuthorized = $true
             } else {
                 $selUsesAstra = $false
-                $reason = 'Kernel-owned T4 (Opus) failure proof; Astra unavailable, fail closed to T4 Opus.'
+                $reason = 'Kernel-owned T4 (Sol) failure proof; Astra unavailable, fail closed to T4 Sol.'
             }
         }
     }

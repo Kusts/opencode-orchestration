@@ -31,8 +31,8 @@ Assert-MX ([string]$pol.role_profiles.build.default_model -ceq 'hy4' -and @($pol
 Assert-MX (([string]$pol.tiers.T1.primary -ceq 'hy4') -and ([string]$pol.tiers.T1.fallback -ceq 'mimo')) 'mx-T1-hy4-to-mimo'
 Assert-MX (([string]$pol.tiers.T2.primary -ceq 'luna') -and ([string]$pol.tiers.T2.fallback -ceq 'muse')) 'mx-T2-luna-primary'
 Assert-MX (([string]$pol.models.deepseek_go.fallback_candidates[0] -ceq 'muse') -and ([string]$pol.models.deepseek_go.fallback_candidates[1] -ceq 'claude_haiku') -and ([string]$pol.models.deepseek_go.fallback_candidates[2] -ceq 'luna') -and ([string]$pol.models.muse.fallback_candidates[0] -ceq 'claude_haiku') -and ([string]$pol.models.muse.fallback_candidates[1] -ceq 'luna') -and (@($pol.models.luna.fallback_candidates).Count -eq 0)) 'mx-T2-chain-deepseek-first-no-cycle'
-Assert-MX (([string]$pol.tiers.T3.primary -ceq 'claude_sonnet') -and ([string]$pol.tiers.T3.fallback -ceq 'terra') -and ([string]$pol.models.claude_sonnet.fallback_candidates[0] -ceq 'terra')) 'mx-T3-sonnet-terra-order'
-Assert-MX (([string]$pol.tiers.T4.primary -ceq 'claude_opus') -and ([string]$pol.tiers.T4.fallback -ceq 'sol') -and ([string]$pol.models.claude_opus.fallback_candidates[0] -ceq 'sol')) 'mx-T4-opus-sol-order'
+Assert-MX (([string]$pol.tiers.T3.primary -ceq 'terra') -and ([string]$pol.tiers.T3.fallback -ceq 'claude_sonnet') -and ([string]$pol.models.terra.fallback_candidates[0] -ceq 'claude_sonnet')) 'mx-T3-terra-sonnet-order'
+Assert-MX (([string]$pol.tiers.T4.primary -ceq 'sol') -and ([string]$pol.tiers.T4.fallback -ceq 'claude_opus') -and ([string]$pol.models.claude_opus.fallback_candidates[0] -ceq 'sol')) 'mx-T4-sol-opus-order'
 # T4 same-tier list is Opus->Sol only (no T2 entries in alternatives);
 # downgraded audit-only DeepSeek Go->Muse T2 recovery is documented in the
 # T4 description and gated by T2 admissibility at fallback time, never executed.
@@ -70,19 +70,19 @@ Assert-MX (@($pol.role_profiles.researcher.admissible_tiers) -notcontains 'T3' -
 $docsProfile = $pol.role_profiles.PSObject.Properties['docs-manager'].Value
 Assert-MX (@($pol.role_profiles.explorer.admissible_tiers) -notcontains 'T3' -and @($docsProfile.admissible_tiers) -notcontains 'T3' -and @($pol.role_profiles.tester.admissible_tiers) -notcontains 'T3') 'mx-T1-roles-not-admissible-T3'
 $coderT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($coderT3.Tier -ceq 'T3' -and $coderT3.CatalogModel -ceq 'claude-agent/sonnet') 'mx-complex-coder-starts-sonnet-T3'
+Assert-MX ($coderT3.Tier -ceq 'T3' -and $coderT3.CatalogModel -ceq 'openai/gpt-6.1-terra') 'mx-complex-coder-starts-terra-T3'
 $advisor = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-MX ($advisor.Tier -ceq 'T3' -and $advisor.CatalogModel -ceq 'claude-agent/sonnet') 'mx-advisor-min-T3-sonnet'
+Assert-MX ($advisor.Tier -ceq 'T3' -and $advisor.CatalogModel -ceq 'openai/gpt-6.1-terra') 'mx-advisor-min-T3-terra'
 Assert-MX (@($pol.role_profiles.'engineering-advisor'.admissible_tiers) -notcontains 'T2' -and @($pol.role_profiles.'engineering-advisor'.prohibited_tiers) -contains 'T2') 'mx-advisor-T2-prohibited'
 
 # 4. Kernel proof canonical IDs follow the policy primaries (no stale Terra/Sol anchors).
 $canonT3 = Get-TaskKernelCanonicalModelForTier -Policy $pol -Tier 'T3'
 $canonT4 = Get-TaskKernelCanonicalModelForTier -Policy $pol -Tier 'T4'
-Assert-MX ([bool]$canonT3.ok -and $canonT3.model_id -ceq 'claude-agent/sonnet' -and $canonT3.provider -ceq 'claude-agent') 'mx-kernel-proof-primary-T3-sonnet'
-Assert-MX ([bool]$canonT4.ok -and $canonT4.model_id -ceq 'claude-agent/opus' -and $canonT4.provider -ceq 'claude-agent') 'mx-kernel-proof-primary-T4-opus'
-$tierSonnet = Get-TaskKernelTierForModelId -Policy $pol -ModelId 'claude-agent/sonnet'
-$tierOpus = Get-TaskKernelTierForModelId -Policy $pol -ModelId 'claude-agent/opus'
-Assert-MX ([bool]$tierSonnet.ok -and $tierSonnet.tier -ceq 'T3' -and [bool]$tierOpus.ok -and $tierOpus.tier -ceq 'T4') 'mx-kernel-infers-Claude-tier-from-policy'
+Assert-MX ([bool]$canonT3.ok -and $canonT3.model_id -ceq 'openai/gpt-6.1-terra' -and $canonT3.provider -ceq 'openai') 'mx-kernel-proof-primary-T3-terra'
+Assert-MX ([bool]$canonT4.ok -and $canonT4.model_id -ceq 'openai/gpt-6.1-sol' -and $canonT4.provider -ceq 'openai') 'mx-kernel-proof-primary-T4-sol'
+$tierSonnet = Get-TaskKernelTierForModelId -Policy $pol -ModelId 'openai/gpt-6.1-terra'
+$tierOpus = Get-TaskKernelTierForModelId -Policy $pol -ModelId 'openai/gpt-6.1-sol'
+Assert-MX ([bool]$tierSonnet.ok -and $tierSonnet.tier -ceq 'T3' -and [bool]$tierOpus.ok -and $tierOpus.tier -ceq 'T4') 'mx-kernel-infers-tier-from-policy'
 
 # 5. No automatic replay: caller booleans and ambiguous/transport classes are
 # not an independent no-start proof. The productive fallback resolver stays HOLD.

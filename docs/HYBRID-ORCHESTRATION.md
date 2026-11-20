@@ -1,0 +1,158 @@
+# Orquestração híbrida (Claude + Orca + OpenCode)
+
+Documentação mínima da integração híbrida (M4) e da migração T3/T4 para
+Terra/Sol. Não substitui as instruções permanentes nem os relatórios de
+homologação; apenas descreve o contrato operacional e aponta para as fontes.
+
+## Arquitetura
+
+Três papéis distintos, sem sobreposição de autoridade:
+
+- **Claude coordena:** é o único control plane. Interpreta o objetivo, decide
+  estratégia, decompõe tarefas, delega, acompanha evidência, replaneja e encerra.
+- **Orca supervisiona:** fornece o terminal de coordenação, o despacho de
+  workers, o inbox de mensagens e o ciclo de vida das sessões. O coordenador
+  alcança o terminal de trabalho por `_orca orchestration_` (canal que o worker
+  não vê diretamente).
+- **OpenCode executa:** roda os workers (subagentes) que implementam, validam e
+  revisam, sob as permissões e o kernel existentes.
+
+Não há daemon, polling, fila externa, segundo kernel nem plugin novo. A
+coordenação é orientada a eventos do próprio Orca; a retomada usa `run-current`,
+`run-list`, `worker-list` e o inbox — nunca um segundo controlador nem laço de
+espera ativo. A hierarquia de subagentes permanece rasa (`subagent_depth: 1`):
+workers não criam subagentes próprios.
+
+## Instruções permanentes e instalação
+
+O repositório é a fonte canônica; nada é copiado à mão para `~/.claude`:
+
+- `source/claude/CLAUDE.hybrid.md` — seção "Orquestração híbrida (Claude +
+  Orca + OpenCode)", instalada como bloco marcado em `~/.claude/CLAUDE.md`.
+- `source/claude/skills/hybrid-orchestration/` — `SKILL.md` + `references/`
+  (`dispatch-confirmation.md`, `opencode-contract.md`, `resume.md`).
+
+Instalação opt-in, preservando o que já existe (backup em
+`<ClaudeHome>/backups/opencode-orchestration-claude/<ts>/`, manifest com SHA256):
+
+```powershell
+.\install.ps1 -ClaudeHybrid -WhatIf   # plano (CREATE/UPDATE/ADOPT/CONFLICT)
+.\install.ps1 -ClaudeHybrid           # aplica; sem o switch o OpenCode segue standalone
+.\uninstall.ps1 -ClaudeHybrid         # rollback: remove só o gerenciado
+```
+
+Seção legada sem marcadores é adotada (sem duplicar); arquivo editado pelo usuário
+vira `CONFLICT` e é preservado. Não toca `settings.json`, hooks nem outras skills.
+Em divergência, o pedido atual do usuário prevalece.
+
+## Integração Orca
+
+Verbos usados pelo worker (os hooks nativos do OpenCode são preservados — nada
+é desligado ou substituído):
+
+- `worker-start` — inicia um worker com `--spec`, `--agent` e `--worktree`.
+- `worker-show` / `worker-read` — inspecionam estado e saída de um worker.
+- `worker-stop` / `worker-abandon` — encerram ou abandonam um worker.
+- `check --run <id>` — lê mensagens do coordenador para a execução corrente.
+- `worker_done` — sinaliza conclusão ao coordenador (`--outcome succeeded` ou
+  `--outcome failed`), com `task-id` e `dispatch-id`.
+
+O worker não vê o terminal do coordenador; toda comunicação (pergunta,
+bloqueio, conclusão) passa por `orca orchestration ask/send` com `--from` apontando
+ao seu próprio terminal.
+
+## Confirmação de execução P0 após `worker-start`
+
+`ready`/`input_accepted`/`activity=working` não provam que o turno da task
+correta começou. A skill exige uma rodada de verificação (`worker-show`,
+`worker-read`, `terminal read` só se faltar evidência) e trata 5 casos:
+executou; texto no draft sem submeter (um único `terminal send --enter`); prompt
+ausente (`worker-stop`/`abandon` + `worker-start --task --retry-of` sem `--spec`);
+Dispatch sem execução observável; estado ambíguo após falha de comunicação
+(`request-show`/`--retry-request`, reconciliar). Detalhe normativo em
+`source/claude/skills/hybrid-orchestration/references/dispatch-confirmation.md`.
+Princípio: comprovadamente não iniciado ⇒ recupera; desconhecido ⇒ `HOLD`.
+
+## Homologação A–G
+
+Ver `evidence/v3.1/claude-hybrid/homologation-2026-11-19.json` (ambiente
+descartável; cenários simulados identificados como tal).
+
+## Configuração T3/T4 (policy 1.6.1)
+
+Mapeamento da policy 1.6.1 (fonte canônica:
+`source/registry/model-routing-policy.json`):
+
+- **T3:** `openai/gpt-6.1-terra` — seleção real do router para tarefas de alto
+  risco (ex.: `reviewer`).
+- **T4:** `openai/gpt-6.1-sol` — escalonamento de T3, condicionado a
+  `kernel proof-gated` (prova `RequiredTier T3` válida do Task Kernel).
+- **Astra:** excepcional e `proof-gated` — somente após prova T4 válida; sem
+  execução em runtime até o momento.
+- **T1/T2 e Planner `build`:** inalterados por esta migração.
+
+Precedência efetiva de configuração: `models.jsonc` local **>** variáveis de
+ambiente **>** policy. O `models.jsonc` local é *gitignored* e precisa refletir
+Terra/Sol para que a seleção local não diverge da policy.
+
+A configuração viva em `~/.config/opencode` **não** foi alterada. Qualquer
+aplicação deve passar somente por
+`scripts\reconcile-opencode-config.ps1`, com backup e rollback — **não executado**
+nesta frente.
+
+## Recuperação
+
+Reconstruir o estado a partir do Orca, sem presumir o que aconteceu:
+
+1. `orca orchestration ... run-current` / `run-list` — identificar a execução.
+2. `worker-list` / `worker-show` — estado dos workers e seus despachos.
+3. `check --run <id>` / inbox — mensagens pendentes do coordenador.
+
+Nunca reiniciar um Dispatch sem prova observável de que ele não chegou a
+executar. Na dúvida, `HOLD` e reconciliar; não duplicar turno, dispatch ou
+efeito.
+
+## Resultados da homologação
+
+- **P0 (confirmação de execução):** homologado em 3 cenários em repositório
+  descartável; cenários 2 e 3 foram **SIMULADOS** — provam o procedimento, não a
+  frequência da falha.
+- **T3/T4 — seleção real do router:** `reviewer` de risco alto →
+  `openai/gpt-6.1-terra`; escalonamento T4 → `openai/gpt-6.1-sol`
+  (`kernel proof-gated`). Astra só provado por testes do kernel, não em runtime.
+- **B (runtime):** `opencode run -m openai/gpt-6.1-terra` e
+  `-m openai/gpt-6.1-sol` em repo descartável; `opencode session export`
+  registra `model.id` `gpt-6.1-terra` / `gpt-6.1-sol`, `providerID` `openai`.
+- **Testes:** suítes de modelo 16/16 verdes em PS7 e PS5.1; `run-v3-tests` em
+  PS5.1 todas verdes (timeouts do runner completo eram carga de memória;
+  reexecutadas isoladas/em lotes com exit 0); `package-consistency` 17/17;
+  `distribution` 24 pass / 0 fail / 1 skip; `git diff --check` limpo. Um assert
+  de `OrchestrationPlannerModelConfig` que fixava o `models.jsonc` local em
+  `sonnet`/`opus` foi atualizado para `terra`/`sol`.
+- **NÃO FEITO / com o operador:** **D** (interromper a sessão do Claude com
+  worker rodando e retomar) depende do operador; **E** (eficiência híbrido vs
+  OpenCode direto) sem medição conclusiva — não alegar ganho; `reconcile` da
+  config viva pendente de autorização; commit não feito.
+
+## Limitações
+
+- Dois dos três cenários da confirmação P0 (os cenários 2 e 3) foram simulados:
+  validam o procedimento, não a taxa de falha em produção.
+- Astra não foi executado em runtime; apenas coberto por testes do kernel.
+- O cenário D depende de interrupção/retomada pelo operador; não homologado
+  aqui.
+- Não há medição conclusiva de eficiência (cenário E): nenhum ganho é alegado.
+- A configuração viva não foi reconciliada; o `models.jsonc` local é fora do
+  controle de versão e sua conformidade precisa ser verificada no ambiente.
+
+## Rollback
+
+Esta frente só produz documentação. Para reverter:
+
+1. Remover `docs/HYBRID-ORCHESTRATION.md`.
+2. Reverter as linhas adicionadas em `CHANGELOG.md` sob `[Unreleased]`.
+3. Não há configuração viva alterada a restaurar. Não executar `reconcile`
+   como forma de rollback.
+
+Nenhum commit, push, install ou reconciliação foi realizado; alterações
+preexistentes de outras frentes no worktree devem ser preservadas.

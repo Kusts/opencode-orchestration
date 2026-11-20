@@ -2,12 +2,27 @@
 
 ## [Unreleased]
 
+- **Modo híbrido nativo (2026-11-19):** `install.ps1 -ClaudeHybrid` /
+  `uninstall.ps1 -ClaudeHybrid` instalam a partir de `source/claude/` o bloco
+  marcado em `CLAUDE.md` e a skill `hybrid-orchestration` (+ referências do
+  contrato OpenCode, P0 de despacho e retomada), com manifest, backup e
+  rollback standalone; sem plugin, hook ou estado novo. Teste
+  `tests/distribution/claude-hybrid.tests.ps1` (24 asserts, PS5.1+PS7).
+  Homologação A–G: `evidence/v3.1/claude-hybrid/homologation-2026-11-19.json`.
+
 - **Permissões de shell dos workers:** por decisão explícita do usuário,
   removidas as regras de `deny`/`ask` e allowlists específicas de shell; os
   19 agentes agora têm shell irrestrito. `edit` por papel, `task: deny` e
   `subagent: * deny` nos workers foram preservados.
 
 - Routing: `hy4` (OpenCode Go) passa a ser o primário T1 e do Planner `build` (policy 1.5.0 → 1.6.0); MiMo é fallback T1 e Luna permanece candidata de disponibilidade do Planner somente com prova independente de não-início. Sem promoção por exaustão de transporte.
+
+- **Documentação (M4):** novo `docs/HYBRID-ORCHESTRATION.md` descreve a integração
+  híbrida Claude/Orca/OpenCode e a migração T3/T4 → Terra/Sol (policy 1.6.1),
+  incluindo confirmação P0, recuperação pelo Orca, homologação delimitada,
+  limitações e rollback. Instruções permanentes permanecem apenas em
+  `~/.claude/CLAUDE.md` e na skill `~/.claude/skills/hybrid-orchestration/SKILL.md`.
+  Config viva não reconciliada; commit não feito.
 
 Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).

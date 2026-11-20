@@ -217,7 +217,7 @@ independência material. Paralelismo segue o Governor (cheap pool, Wave + Barrie
 Escalonamento (mesmo mecanismo: override temporário no spawn + reset ao
 baseline; nunca editar a definição; aplicam-se as cotas já definidas):
 `requirements-analyst` baseline cheap → Sol para requisitos estruturalmente complexos;
-`engineering-advisor` baseline T3 Sonnet primário, Terra candidato → Opus/Astra somente via prova kernel-owned;
+`engineering-advisor` baseline T3 Terra primário, Sonnet alternativa → Sol/Astra somente via prova kernel-owned;
 `product-designer` baseline cheap → Sol excepcionalmente; `skeptic` baseline cheap →
 Sol para plano/arquitetura high-risk. Nunca reutilize um
 worker escalonado após a subtarefa.
