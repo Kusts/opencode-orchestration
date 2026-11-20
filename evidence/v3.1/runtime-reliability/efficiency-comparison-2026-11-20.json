@@ -1,0 +1,168 @@
+{
+  "schema": "efficiency-comparison/v1",
+  "task": "Task D - P1-06 (issues #286, #281)",
+  "generated_at": "2026-11-20T19:30:00Z",
+  "branch": "refactor/remove-proven-redundancy-20261120",
+  "base_commit": "a09a1a2db6b96bb9537b2e78d01f923dd53fdd29",
+  "classification": "CONTROLLED_BEFORE_AFTER_LOCAL_MEASUREMENT",
+  "committed": false,
+  "fontes_medicao_existentes": [
+    {
+      "fonte": "docs/OPERATIONAL-STATUS.md",
+      "achado": "Eficiencia 'nao tem baseline comparavel; nao mensurada'; 'conclusao causal de eficiencia exige runtime V2 vivo e A/B controlado'."
+    },
+    {
+      "fonte": "github issue #286 + issue #281 (gh issue view)",
+      "achado": "#286 pede antes/depois de arquivos/etapas, tempo de fluxo representativo e regressoes; #281 exige Funcionalidade-Primeiro/Reuso/Menos-cerimonia e nao inventar metrica."
+    },
+    {
+      "fonte": "evidence/evolution-2026-11-19/RELATORIO.md",
+      "achado": "Medicao anterior: latencia agregada dominada por timeouts de dispatcher/Jev neste ambiente; nao e prova de ganho de eficiencia."
+    },
+    {
+      "fonte": "evidence/v3.1/runtime-reliability/workflow-efficiency-measurements-2026-11-19.json",
+      "achado": "WL-03 Advisor 30199.07ms com PROOF_ABSENT/NATIVE_DISPATCH_TIMEOUT; WL-04 JEV 30749.21ms; custo/tokens UNKNOWN."
+    },
+    {
+      "fonte": "evidence/closure/f0-finding-B-wiring.md + evidence/v3.1/runtime-reliability/phase29.json",
+      "achado": "Jev advisory: budget 30s, circuito 2/300s, criticality optional, authority advisory-only (cannot[8]) - nunca altera rota, autoridade, modelo ou DONE."
+    },
+    {
+      "fonte": "scripts/v3/lib/OrchestrationPlannerLoop.tests.ps1 (t4/t4c)",
+      "achado": "Plano sem jev_advisory_result e byte-identico com e sem parecer; advice_applied=false e decision_applied=false sao asserts existentes."
+    }
+  ],
+  "cenario_1_trivial": {
+    "id": "WL-01-DIRECT-VERIFIED-READ-ONLY-LOOKUP",
+    "descricao": "Tarefa trivial read-only (lookup de secao + forma do gate de DONE), via Get-OrchestrationPreflight + Test-OrchestrationDoneCompliance; Planner LLM NAO invocado.",
+    "adequacao_direto_vs_hibrido": "Somente direto e adequado: escrita zerada e baixo risco. Comparar com hibrido seria inadequado e registrado como NAO_APLICAVEL (nao se delega leitura trivial).",
+    "antes": {
+      "ferramenta": "scripts/v3/measure-workflow-efficiency.ps1 (pwsh 7, 2026-11-20T19:26:53Z, commit a09a1a2)",
+      "wall_clock_ms": 242.46,
+      "delegacoes": 0,
+      "retries": 0,
+      "tokens": "NOT_MEASURED",
+      "custo_usd": "NOT_MEASURED",
+      "compliance_verdict": "COMPLIANT",
+      "verified_result": "PREFLIGHT_ELIGIBILITY_PLUS_GATE_SHAPE_ONLY"
+    },
+    "depois": {
+      "ferramenta": "scripts/v3/measure-workflow-efficiency.ps1 (pwsh 7, 2026-11-20T19:28:49Z, worktree com a mudanca)",
+      "wall_clock_ms": 198.83,
+      "delegacoes": 0,
+      "retries": 0,
+      "tokens": "NOT_MEASURED",
+      "custo_usd": "NOT_MEASURED",
+      "compliance_verdict": "COMPLIANT",
+      "verified_result": "PREFLIGHT_ELIGIBILITY_PLUS_GATE_SHAPE_ONLY"
+    },
+    "resultado_validado_identico": true,
+    "observacao": "Mudanca nao toca este caminho; wall_clock variou por ruido local nao atribuivel a mudanca. Nao ha claim de ganho."
+  },
+  "cenario_2_desenvolvimento_real": {
+    "id": "WL-04-JEV-ADVISORY-PLANNER-LOOP",
+    "descricao": "Tarefa real de desenvolvimento (multi_worker, risk medium, route_uncertain) no loop determinstico do Planner com trigger Jev advisory e probe sintetico.",
+    "adequacao_direto_vs_hibrido": "Comparacao direto vs hibrido NAO_APLICAVEL neste harness: a medicao e component-based (preflight/gate/loop), sem execucao de worker real; custo-ate-DONE exige trace de sessao multi-turn (NOT_MEASURED).",
+    "antes": {
+      "wall_clock_ms": 3585.79,
+      "delegacoes": 0,
+      "retries": 0,
+      "consultas_jev": 1,
+      "leituras_gate_flag_no_turno": 2,
+      "detalhe_leituras_gate": "1x em OrchestrationPlannerLoop.ps1 (pre-check) + 1x em Invoke-JevAdvisoryCall (dono real)",
+      "tokens": "NOT_MEASURED (probe sintetico declara 150 in / 30 out; nao e consumo real)",
+      "custo_usd": "NOT_MEASURED",
+      "verified_result": "DECISION_CONSUMED_IN_PLAN",
+      "plano_alterado_pelo_parecer": false
+    },
+    "depois": {
+      "wall_clock_ms": 2998.23,
+      "delegacoes": 0,
+      "retries": 0,
+      "consultas_jev": 1,
+      "leituras_gate_flag_no_turno": 1,
+      "detalhe_leituras_gate": "somente Invoke-JevAdvisoryCall (dono unico do gate)",
+      "tokens": "NOT_MEASURED (probe sintetico declara 150 in / 30 out; nao e consumo real)",
+      "custo_usd": "NOT_MEASURED",
+      "verified_result": "DECISION_CONSUMED_IN_PLAN",
+      "plano_alterado_pelo_parecer": false
+    },
+    "resultado_validado_identico": true,
+    "observacao": "Ganho observavel e a reducao deterministica de 2 para 1 leitura do gate de flag no mesmo turno produtivo. A reducao de wall_clock NAO e atribuivel a mudanca (variancia local alta; timeouts de 30s nao se reproduziram nesta rodada)."
+  },
+  "referencia_historica_timeouts": {
+    "wl03_2026_11_19_ms": 30199.07,
+    "wl04_2026_11_19_ms": 30749.21,
+    "wl03_2026_11_20_ms": 7233.96,
+    "wl04_2026_11_20_ms": 3585.79,
+    "interpretacao": "Os ~30s dependem do ambiente (dispatcher/Jev). Nao foram reproduzidos localmente; portanto nao ha prova de ganho de latencia, apenas de reducao de chamadas de gate."
+  },
+  "redundancia_removida": {
+    "local": "scripts/v3/lib/OrchestrationPlannerLoop.ps1",
+    "descricao": "Pre-check Get-JevAdvisoryFlag no loop, logo antes de Invoke-JevAdvisoryCall, duplicava a leitura/validacao do mesmo no do registry de flags que o proprio lib ja executa em Invoke-JevAdvisoryCall.",
+    "prova_de_ser_redundante": [
+      "O lib declara e aplica a propietaria exclusiva dos gates ('owns EVERY gate ... No gate is duplicated here'), mas o codigo do loop fazia a mesma leitura.",
+      "Invoke-JevAdvisoryCall reavalia trigger, flag, modo, credencial e circuito e curto-circuita antes de qualquer rede (JEV_FLAG_INVALID / JEV_DISABLED / JEV_WOULD_CONSULT).",
+      "O parecer e estruturalmente nao autoritativo: cannot[8], strategy_posterior = strategy_prior, advice_applied=false; nao altera rota, autoridade, modelo nem DONE.",
+      "Contagem estatica no caminho produtivo: Get-JevAdvisoryFlag 2x em HEAD (a09a1a2) -> 1x no worktree (somente no lib)."
+    ],
+    "menor_mudanca": "Removidas 3 linhas (leitura + if do flag + else) e adicionadas 5 linhas de comentario contratual; nenhuma policy, flag, registry, timeout ou modelo alterado.",
+    "comportamento_preservado": "Trigger continua calculado no loop para o registro jev_triggers; chamada unica ao lib; plano, rota, DONE e authoritative=false identicos; nenhuma credencial, endpoint ou token tocado. Com no de flag ausente, o loop mapeia o JEV_FLAG_INVALID canonico do lib de volta ao envelope fechado exato 'unavailable / jev-advisory-flag-absent', preservando o valor do commit base a09a1a2. Unica diferenca residual nao-decisional: o lib agora emite o evento de telemetria JEV_FLAG_INVALID antes do mapeamento (o base nao chamava o lib nesse caminho); nenhum consumidor de plano le telemetria.",
+    "seam_de_teste": "Adicionado -JevAdvisoryFlagsPath (vazio = caminho canonico, comportamento de producao inalterado), paralelo as seams -JevAdvisoryProbe e -JevAdvisoryBudgetSecondsOverride, para injetar fixtures de registry sem tocar em source/registry nem em perfis reais.",
+    "prova_comportamental_flag": {
+      "descritor": "model_route_uncertain=true (dispara Test-JevAdvisoryTrigger com reason model-route-uncertain; verificado runtime)",
+      "cenario_flag_ausente": "zero chamadas ao probe/transporte; jev_advisory_result = unavailable/jev-advisory-flag-absent; fallback_continue=true; blocked=false; authoritative=false",
+      "cenario_flag_disabled": "zero chamadas ao probe/transporte; status JEV_DISABLED (mesmo do base); plano inalterado",
+      "controle_flag_active": "exatamente 1 chamada ao probe (prova que a seam esta ligada e que o zero dos outros casos e real)",
+      "comparacao_base": "PlannerLoop do commit a09a1a2 executado em raiz temporaria com as mesmas fixtures: plan_json byte-identico ao do codigo atual nos casos ausente e disabled; o base emite explicitamente unavailable/jev-advisory-flag-absent no caso ausente",
+      "assertoes": "18/18 PASS em powershell 5.1 e pwsh 7"
+    },
+    "grep_consumidores": "Busca em scripts/, tests/, docs/ e evidence/ por 'jev-advisory-flag-absent': apenas a propria implementacao do mapa, o teste novo e este JSON. Nenhum consumidor de producao ou documento depende do valor; alem disso o valor foi preservado, entao nao ha mudanca de contrato."
+  },
+  "teste_focado": {
+    "arquivo": "scripts/v3/jev-gate-single-read.tests.ps1",
+    "antes_da_mudanca": "Versao inicial (6 asserts, estruturais): 5/6 PASS, exit 1 - falha exata em flag-gate-not-duplicated-in-planner-loop",
+    "depois_da_mudanca": "Versao reforcada (18 asserts, comportamentais + comparacao com o base): 18/18 PASS, exit 0 em powershell 5.1 e pwsh 7",
+    "assercoes": [
+      "3 guards estruturais de propriedade do gate",
+      "absent-flag-trigger-did-fire",
+      "absent-flag-zero-probe-calls",
+      "disabled-flag-zero-probe-calls",
+      "active-flag-probe-is-wired-once",
+      "absent-flag-old-envelope-preserved",
+      "disabled-flag-canonical-status",
+      "plan-identical-across-flag-modes",
+      "route-and-authority-unchanged",
+      "no-done-key-in-plans",
+      "base-vs-current-absent-byte-identical",
+      "base-absent-old-envelope",
+      "base-absent-zero-probe-calls",
+      "base-vs-current-disabled-byte-identical",
+      "base-disabled-canonical-status",
+      "base-disabled-zero-probe-calls"
+    ]
+  },
+  "validacao": {
+    "git_diff_check": "PASS (exit 0)",
+    "test_package_consistency": "17 OK / 0 FAIL em powershell 5.1 e pwsh 7",
+    "OrchestrationPlannerLoop.tests.ps1": "73 checks PASS em powershell 5.1 e pwsh 7 (via runner e direto)",
+    "jev-gate-single-read.tests.ps1": "6/6 PASS em powershell 5.1 e pwsh 7",
+    "run_v3_tests_completo_pwsh": "201 PASS / 0 FAIL de suite interna / 10 SKIP / 2 FAIL de suite / 213 TOTAL, exit 1, 3982.9s (a contagem 201/0 e a soma interna das suites; as 2 suites com FAIL estao abaixo)",
+    "run_v3_tests_falhas": [
+      "DevTelemetry.tests.ps1: '[FAIL] publish fixture write ok -- False' na 1a rodada; RERODADA isoladamente = 133/133 PASS, exit 0 => FLAKE por carga concorrente, nao regressao.",
+      "OrchestrationNativeSessionAdapter.tests.ps1: 3 falhas ('runtime smoke ok :: EXIT_1', 'runtime smoke bounded :: got <vazio>', 'runtime smoke by id :: INVALID_ID'), reprodutivel no rerun; depende de binario/provider de runtime real; suite nao referencia OrchestrationPlannerLoop; HOLD de smoke Planner-worker ja documentado em OPERATIONAL-STATUS."
+    ],
+    "run_distribution_ps51": "25 PASS / 1 FAIL / 1 SKIP / 27, exit 1, 336.4s",
+    "run_distribution_pwsh": "25 PASS / 1 FAIL / 1 SKIP / 27, exit 1, 570.3s",
+    "run_distribution_falha": "skills-catalog.tests.ps1: 14 PASS / 1 FAIL nos dois runtimes: 'skills-healthcheck verdict FAIL reasons: core-gate: test-driven-development' (skill CORE ausente no diretorio pessoal do operador). Drift user-owned documentado no RELATORIO 2026-11-19; a suite nao referencia OrchestrationPlannerLoop e este task nao altera skills.",
+    "avaliacao_falhas": "Nenhuma das 3 falhas esta relacionada a mudanca (Escopo de escrita: PlannerLoop + 1 teste + 1 JSON). Nenhuma suite que falhou referencia OrchestrationPlannerLoop. Nenhum retry mascarou falha: cada rerun foi relatado com o resultado observado.",
+    "revalidacao_followup": "Apos o reforco pedido pelo coordenador (seam de flags + mapeamento do envelope antigo + testes comportamentais), reexecutei OrchestrationPlannerLoop.tests.ps1 (73/73) e jev-gate-single-read.tests.ps1 (18/18) em powershell 5.1 e pwsh 7, ambos exit 0. As suites completas V3/distribuicao acima foram executadas na iteracao anterior deste branch; a mudanca do follow-up e aditiva (default do seam vazio = caminho canonico) e nao altera o comportamento das demais suites."
+  },
+  "limitacoes": [
+    "Nenhum framework, metrica, policy, flag ou timeout novo introduzido.",
+    "Tokens/custo de missao, delegacoes e retries de worker real: NOT_MEASURED (harness component-based).",
+    "Causalidade de latencia NAO afirmada: variacao local e dominio de timeouts externos impedem A/B controlado.",
+    "A leitura duplicada de trigger (Test-JevAdvisoryTrigger) permanece: removela exigiria novo parametro no lib e mudaria o registro jev_triggers; nao e a menor mudanca correta."
+  ],
+  "estado": "candidate_pass"
+}
