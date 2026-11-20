@@ -860,24 +860,39 @@ function Merge-ManagedOpencodeConfigV2($Existing, $Desired, [switch]$SkipPermiss
 
 # ---- 2.4 precheck -----------------------------------------------------------
 function Validate-Models([string]$ModelsPath, [string]$Root = '') {
-  $errs = @()
-  if (-not (Test-Path -LiteralPath $ModelsPath -PathType Leaf)) {
-    return @{ Ok = $false; Errors = @('models.jsonc ausente: ' + $ModelsPath); Values = $null }
-  }
-  try {
-    $parsed = (Strip-JsoncComments (Read-Utf8 $ModelsPath)) | ConvertFrom-Json
-  }
-  catch {
-    return @{ Ok = $false; Errors = @('models.jsonc nao e JSONC parseavel: ' + $_.Exception.Message); Values = $null }
-  }
+  # P1-03: a configuracao CANONICA vem da policy
+  # (source/registry/model-routing-policy.json). models.jsonc e um OVERRIDE
+  # EXPLICITO do operador: o arquivo pode estar ausente, e chaves ausentes ou
+  # vazias NAO sao erro -- sao preenchidas pela policy. Nenhum override
+  # intencional e sobrescrito; Source/OverrideKeys distinguem as duas origens.
   if ([string]::IsNullOrWhiteSpace($Root)) { throw 'Root obrigatorio para resolver os modelos da policy.' }
   $defaults = Get-PolicyModelDefaults $Root
-  foreach ($k in @('planner', 'cheap', 'strong', 'free', 'frontier')) {
-    if (-not (Has-Member $parsed $k) -or [string]::IsNullOrWhiteSpace([string]$parsed.$k)) {
+  $modelKeys = @('planner', 'cheap', 'strong', 'free', 'frontier')
+  $overrideKeys = @()
+  $parsed = $null
+  if (Test-Path -LiteralPath $ModelsPath -PathType Leaf) {
+    try {
+      $parsed = (Strip-JsoncComments (Read-Utf8 $ModelsPath)) | ConvertFrom-Json
+    }
+    catch {
+      return @{ Ok = $false; Errors = @('models.jsonc nao e JSONC parseavel: ' + $_.Exception.Message); Values = $null; OverrideKeys = @(); Source = 'invalid-override' }
+    }
+    if ($null -eq $parsed) { $parsed = New-Object PSObject }
+  }
+  else {
+    $parsed = New-Object PSObject
+  }
+  foreach ($k in $modelKeys) {
+    if ((Has-Member $parsed $k) -and -not [string]::IsNullOrWhiteSpace([string]$parsed.$k)) {
+      $overrideKeys += $k
+    }
+    else {
       $parsed | Add-Member -NotePropertyName $k -NotePropertyValue $defaults[$k] -Force
     }
   }
-  return @{ Ok = $true; Errors = @(); Values = $parsed }
+  $sourceKind = 'policy-canonical'
+  if ($overrideKeys.Count -gt 0) { $sourceKind = 'policy-with-operator-overrides' }
+  return @{ Ok = $true; Errors = @(); Values = $parsed; OverrideKeys = @($overrideKeys); Source = $sourceKind }
 }
 
 function Get-DefaultFreeModel([string]$Root) {
@@ -950,13 +965,15 @@ function Validate-AgentDefinitions([string]$Root) {
   return @{ Ok = $true; Errors = @() }
 }
 
-function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna') {
+function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna', [string]$Frontier = '') {
   $errs = @()
   $tmplPath = Join-Path $Root 'templates\opencode.v1.json.tmpl'
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('template ausente'); Desired = $null }
   }
-  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free (Get-PolicyModelDefaults $Root).frontier $env:USERPROFILE $Root
+  $frontierValue = $Frontier
+  if ([string]::IsNullOrWhiteSpace($frontierValue)) { $frontierValue = (Get-PolicyModelDefaults $Root).frontier }
+  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free $frontierValue $env:USERPROFILE $Root
   try {
     $desired = $resolved | ConvertFrom-Json
   }
@@ -974,18 +991,21 @@ function Validate-Template([string]$Root, [string]$Planner, [string]$Cheap, [str
     }
   }
   else { $errs += 'template: bloco agent.build ausente.' }
-  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/hy4-flash-free') {
-    $errs += 'template: modelo global deve permanecer opencode-go/hy4-flash-free.'
+  # P1-03: nenhum ID de modelo e fixo aqui. O modelo global segue o pool T1
+  # ({{MODEL_FREE}} no template) e title segue o pool T2 ({{MODEL_CHEAP}});
+  # ambos derivados da policy, ou do override explicito do operador.
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne $Free) {
+    $errs += 'template: modelo global deve seguir o pool T1 derivado da policy (MODEL_FREE).'
   }
-  if ((Has-Member $desired.agent 'title') -and [string]$desired.agent.title.model -cne 'openai/gpt-6-luna') {
-    $errs += 'template: agente title deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'
+  if ((Has-Member $desired.agent 'title') -and [string]$desired.agent.title.model -cne $Cheap) {
+    $errs += 'template: agente title deve usar o pool T2 derivado da policy (MODEL_CHEAP), sem herdar MODEL_PLANNER.'
   }
   if ((Count-TokenMarkers $resolved) -ne 0) { $errs += 'template: tokens nao resolvidos apos substituicao.' }
   if ($errs.Count -gt 0) { return @{ Ok = $false; Errors = $errs; Desired = $null } }
   return @{ Ok = $true; Errors = @(); Desired = $desired }
 }
 
-function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna') {
+function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [string]$Strong, [string]$Free = 'openai/gpt-6-luna', [string]$Frontier = '') {
   # Espelho V2 de Validate-Template: shape nativo (agents/permissions/
   # experimental.subagent_depth), 21 blocos agents (build + title + 15
   # subagents explicitos + 4 planning), build.model isolado por MODEL_PLANNER,
@@ -995,7 +1015,9 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
   if (-not (Test-Path -LiteralPath $tmplPath -PathType Leaf)) {
     return @{ Ok = $false; Errors = @('template V2 ausente'); Desired = $null }
   }
-  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free (Get-PolicyModelDefaults $Root).frontier $env:USERPROFILE $Root
+  $frontierValue = $Frontier
+  if ([string]::IsNullOrWhiteSpace($frontierValue)) { $frontierValue = (Get-PolicyModelDefaults $Root).frontier }
+  $resolved = Resolve-Tokens (Read-Utf8 $tmplPath) $Planner $Cheap $Strong $Free $frontierValue $env:USERPROFILE $Root
   try {
     $desired = $resolved | ConvertFrom-Json
   }
@@ -1025,11 +1047,12 @@ function Validate-TemplateV2([string]$Root, [string]$Planner, [string]$Cheap, [s
     else { $errs += 'template V2: bloco agents.title ausente.' }
   }
   else { $errs += 'template V2: bloco agents ausente.' }
-  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne 'opencode-go/hy4-flash-free') {
-    $errs += 'template V2: modelo global deve permanecer opencode-go/hy4-flash-free.'
+  # P1-03: sem ID fixo; global = pool T1 (MODEL_FREE), title = pool T2 (MODEL_CHEAP).
+  if (-not (Has-Member $desired 'model') -or [string]$desired.model -cne $Free) {
+    $errs += 'template V2: modelo global deve seguir o pool T1 derivado da policy (MODEL_FREE).'
   }
-  if ((Has-Member $desired.agents 'title') -and [string]$desired.agents.title.model -cne 'openai/gpt-6-luna') {
-    $errs += 'template V2: agents.title.model deve permanecer em openai/gpt-6-luna, sem herdar MODEL_PLANNER.'
+  if ((Has-Member $desired.agents 'title') -and [string]$desired.agents.title.model -cne $Cheap) {
+    $errs += 'template V2: agents.title.model deve usar o pool T2 derivado da policy (MODEL_CHEAP), sem herdar MODEL_PLANNER.'
   }
   if (Has-Member $desired 'agent') { $errs += 'template V2: contem chave legada "agent" (singular).' }
   if (Has-Member $desired 'subagent_depth') { $errs += 'template V2: contem chave legada "subagent_depth" no topo (use experimental.subagent_depth).' }
@@ -1460,11 +1483,11 @@ $tmplRes = @{ Ok = $false; Errors = @(); Desired = $null }
 $tmplResV2 = @{ Ok = $false; Errors = @(); Desired = $null }
 if ($modelsRes.Ok) {
   if ($preIsV2) {
-    $tmplResV2 = Validate-TemplateV2 $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong $modelsRes.Values.free
+    $tmplResV2 = Validate-TemplateV2 $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong $modelsRes.Values.free $modelsRes.Values.frontier
     if (-not $tmplResV2.Ok) { foreach ($e in $tmplResV2.Errors) { [void]$preErrors.Add($e) } }
   }
   else {
-    $tmplRes = Validate-Template $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong $modelsRes.Values.free
+    $tmplRes = Validate-Template $RepoRoot $modelsRes.Values.planner $modelsRes.Values.cheap $modelsRes.Values.strong $modelsRes.Values.free $modelsRes.Values.frontier
     if (-not $tmplRes.Ok) { foreach ($e in $tmplRes.Errors) { [void]$preErrors.Add($e) } }
   }
 }
@@ -1498,7 +1521,7 @@ $modelPlanner = $modelsRes.Values.planner
 $modelCheap = $modelsRes.Values.cheap
 $modelStrong = $modelsRes.Values.strong
 $modelFree = $modelsRes.Values.free
-$modelFrontier = (Get-PolicyModelDefaults $RepoRoot).frontier
+$modelFrontier = $modelsRes.Values.frontier
 
 # Runtime ja resolvido no precheck (V31-R3 F3); aqui so deriva o fluxo.
 $IsV2 = ([string]$runtimeDecision.RuntimeId -eq 'opencode-v2')

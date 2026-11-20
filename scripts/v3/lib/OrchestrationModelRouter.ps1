@@ -538,7 +538,9 @@ function Get-OrchestrationUserConfigCatalog {
         if ([string]::IsNullOrWhiteSpace($primaryId)) { throw "Model catalog unavailable: primary for $tierName is missing from policy models" }
         $tierModels[$tierName] = @(Get-PolicyTierModelIds -Policy $pol -Tier $tierName)
     }
-    if ([string]::IsNullOrWhiteSpace([string]$pol.planner.model_id)) { throw 'Model catalog unavailable: planner.model_id is missing from policy' }
+    # P1-03: a identidade do Planner e derivada do primario T1 (unica fonte),
+    # nao de um campo planner.model_id duplicado. A resolucao de T1 acima ja
+    # e obrigatoria e fail-closed; planner conserva apenas tier/fallback.
     $mT1 = Get-PolicyModelId $pol ([string]$pol.tiers.T1.primary)
     $mT2 = Get-PolicyModelId $pol ([string]$pol.tiers.T2.primary)
     $mT3 = Get-PolicyModelId $pol ([string]$pol.tiers.T3.primary)
@@ -1352,10 +1354,11 @@ function Resolve-OrchestrationModelFallback {
     # all T3/T4 candidates remain prohibited.
     if ($cleanAgent -eq 'build') {
         $plannerPolicy = if ($null -ne $policy) { $policy.planner } else { $null }
-        $plannerPrimary = if ($plannerPolicy) { [string]$plannerPolicy.model_id } else { '' }
-        $plannerFallback = if ($plannerPolicy) { [string]$plannerPolicy.fallback_model_id } else { '' }
         $canonicalPlanner = [string]$policy.tiers.T1.primary
         $canonicalPlannerId = Get-PolicyModelId $policy $canonicalPlanner
+        # P1-03: Planner herda a identidade do primario T1; sem campo duplicado.
+        $plannerPrimary = $canonicalPlannerId
+        $plannerFallback = if ($plannerPolicy) { [string]$plannerPolicy.fallback_model_id } else { '' }
         $plannerFallbackLogical = [string]$plannerPolicy.fallback
         $plannerFallbackEntryProperty = $policy.models.PSObject.Properties[$plannerFallbackLogical]
         $plannerFallbackEntry = if ($plannerFallbackEntryProperty) { $plannerFallbackEntryProperty.Value } else { $null }
@@ -2331,19 +2334,18 @@ function Resolve-OrchestrationModelSelection {
         # Planner is policy-primary-only (T1, MODEL_PLANNER, no automatic fallback).
         # Never silently remap Planner to another model; never Sonnet;
         # build never routes to T4.
-        $plannerPrimaryId = Get-PolicyModelId $policyRes.Policy ([string]$policyRes.Policy.planner.primary)
-        $plannerPrimaryProv = [string]$policyRes.Policy.planner.provider
-        try {
-            if ($null -ne $policyRes.Policy -and $null -ne $policyRes.Policy.planner) {
-                if (-not [string]::IsNullOrWhiteSpace([string]$policyRes.Policy.planner.model_id)) {
-                    $plannerPrimaryId = [string]$policyRes.Policy.planner.model_id
-                }
-                if (-not [string]::IsNullOrWhiteSpace([string]$policyRes.Policy.planner.provider)) {
-                    $plannerPrimaryProv = [string]$policyRes.Policy.planner.provider
-                }
-            }
-        } catch { }
-        $tierPlannerId = Get-PolicyModelId $policyRes.Policy ([string]$policyRes.Policy.tiers.T1.primary)
+        # P1-03: identidade do Planner = primario T1 (models[].model_id/provider).
+        # Nenhum campo planner.primary/model_id/provider duplicado e consultado.
+        $tierPlannerKey = [string]$policyRes.Policy.tiers.T1.primary
+        $tierPlannerId = Get-PolicyModelId $policyRes.Policy $tierPlannerKey
+        $plannerPrimaryId = $tierPlannerId
+        $plannerPrimaryProv = ''
+        $tierPlannerNode = $null
+        try { $tierPlannerNode = $policyRes.Policy.models.PSObject.Properties[$tierPlannerKey] } catch { $tierPlannerNode = $null }
+        if ($null -ne $tierPlannerNode -and $null -ne $tierPlannerNode.Value) {
+            $plannerPrimaryProv = [string]$tierPlannerNode.Value.provider
+        }
+        if ([string]::IsNullOrWhiteSpace($plannerPrimaryProv)) { $plannerPrimaryProv = Get-ModelProviderFromId $plannerPrimaryId }
         if ([string]::IsNullOrWhiteSpace($plannerPrimaryId) -or $plannerPrimaryId -cne $tierPlannerId) {
             return [pscustomobject]@{
                 Status                    = 'REJECTED'

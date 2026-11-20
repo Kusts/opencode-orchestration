@@ -26,7 +26,7 @@ Assert-MX ($p.Status -ceq 'POLICY_LOADED') 'mx-policy-loads'
 $pol = $p.Policy
 
 # 1. Declarative primary and same-tier fallback order.
-Assert-MX ([string]$pol.planner.model_id -ceq 'opencode-go/hy4-flash-free' -and [string]$pol.planner.tier -ceq 'T1' -and [string]$pol.planner.primary -ceq 'hy4') 'mx-planner-hy4-t1'
+Assert-MX ($null -eq $pol.planner.PSObject.Properties['model_id'] -and $null -eq $pol.planner.PSObject.Properties['primary'] -and $null -eq $pol.planner.PSObject.Properties['provider'] -and [string]$pol.planner.tier -ceq 'T1' -and ([string]$pol.models.PSObject.Properties[[string]$pol.tiers.T1.primary].Value.model_id) -ceq 'opencode-go/hy4-flash-free') 'mx-planner-identity-derived-from-T1-no-duplication'
 Assert-MX ([string]$pol.role_profiles.build.default_model -ceq 'hy4' -and @($pol.role_profiles.build.alternatives).Count -eq 1 -and [string]$pol.role_profiles.build.alternatives[0] -ceq 'luna') 'mx-build-hy4-with-T1-Luna-availability-candidate'
 Assert-MX (([string]$pol.tiers.T1.primary -ceq 'hy4') -and ([string]$pol.tiers.T1.fallback -ceq 'mimo')) 'mx-T1-hy4-to-mimo'
 Assert-MX (([string]$pol.tiers.T2.primary -ceq 'luna') -and ([string]$pol.tiers.T2.fallback -ceq 'muse')) 'mx-T2-luna-primary'

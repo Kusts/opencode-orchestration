@@ -1169,11 +1169,9 @@
     }
   },
   "planner": {
-    "primary": "hy4",
-    "model_id": "opencode-go/hy4-flash-free",
-    "provider": "opencode-go",
     "stable_during_objective": true,
     "tier": "T1",
+    "identity_source": "tiers.T1.primary via models[].model_id/provider (no duplicated planner primary/model_id/provider)",
     "fallback": "luna",
     "fallback_model_id": "openai/gpt-6-luna",
     "fallback_provider": "openai",

@@ -54,7 +54,7 @@ Assert-V14 ([bool]$pol.cost_policy.astra_requires_exceptional_authorization -eq 
 Assert-V14 ([bool]$pol.models.astra.cost_profile.exceptional_budget_required -eq $true) 'astra-cost-profile-exceptional-budget-required'
 Assert-V14 ([bool]$pol.models.astra.cost_profile.requires_authorization -eq $false) 'astra-no-generic-per-call-auth'
 Assert-V14 (@($pol.advisor.exceptional_conditions) -contains 'budget_authorized') 'advisor-exceptional-conditions-include-budget-authorized'
-Assert-V14 ($pol.planner.primary -eq 'hy4' -and $pol.planner.model_id -eq 'opencode-go/hy4-flash-free' -and $pol.planner.provider -eq 'opencode-go' -and $pol.planner.tier -eq 'T1' -and [string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') 'planner-T1-Luna-availability-candidate-requires-independent-no-start-proof'
+Assert-V14 ($pol.tiers.T1.primary -eq 'hy4' -and ([string]$pol.models.PSObject.Properties[[string]$pol.tiers.T1.primary].Value.model_id) -eq 'opencode-go/hy4-flash-free' -and ([string]$pol.models.PSObject.Properties[[string]$pol.tiers.T1.primary].Value.provider) -eq 'opencode-go' -and $pol.planner.tier -eq 'T1' -and $null -eq $pol.planner.PSObject.Properties['model_id'] -and [string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') 'planner-T1-Luna-availability-candidate-requires-independent-no-start-proof'
 Assert-V14 ($pol.role_profiles.tester.admissible_tiers -contains 'T1') 'tester-T1-allowed'
 Assert-V14 ($pol.models.deepseek_go.model_id -eq 'opencode-go/deepseek-v4.1-flash') 'deepseek-Go-not-Console'
 Assert-V14 ([bool]$pol.models.deepseek_go.enabled -eq $true -and [string]$pol.models.deepseek_go.availability_status -eq 'active') 'deepseek-go-operator-enabled-active'

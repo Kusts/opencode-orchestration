@@ -38,7 +38,7 @@ function Read-JsoncFile([string]$Path) {
 $policy = Get-Content -LiteralPath (Join-Path $repo 'source\registry\model-routing-policy.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 Assert-PMC ([string]$policy.policy_version -ceq '1.6.1') 'pmc-policy-version-1.6.1'
 $planner = $policy.planner
-Assert-PMC ([string]$planner.primary -ceq 'hy4' -and [string]$planner.model_id -ceq 'opencode-go/hy4-flash-free' -and [string]$planner.provider -ceq 'opencode-go' -and [string]$planner.tier -ceq 'T1') 'pmc-policy-planner-primary-hy4-t1'
+Assert-PMC ([string]$policy.tiers.T1.primary -ceq 'hy4' -and ([string]$policy.models.PSObject.Properties[[string]$policy.tiers.T1.primary].Value.model_id) -ceq 'opencode-go/hy4-flash-free' -and ([string]$policy.models.PSObject.Properties[[string]$policy.tiers.T1.primary].Value.provider) -ceq 'opencode-go' -and [string]$planner.tier -ceq 'T1' -and $null -eq $planner.PSObject.Properties['model_id'] -and $null -eq $planner.PSObject.Properties['primary'] -and $null -eq $planner.PSObject.Properties['provider']) 'pmc-policy-planner-identity-derived-from-T1'
 Assert-PMC (([string]$planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and ([string]$planner.fallback -ceq 'luna') -and (-not [bool]$planner.fallback_requires_capability_proof)) 'pmc-planner-T2-Luna-availability-fallback-with-independent-no-start-proof'
 Assert-PMC ([string]$policy.role_profiles.build.default_model -ceq 'hy4' -and (@($policy.role_profiles.build.admissible_tiers) -contains 'T1')) 'pmc-build-role-hy4-t1'
 Assert-PMC (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build') 'pmc-haiku-not-admissible-for-planner-build'
