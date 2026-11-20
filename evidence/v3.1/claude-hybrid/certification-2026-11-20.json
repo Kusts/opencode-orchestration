@@ -1,0 +1,124 @@
+{
+  "schema": "claude-hybrid-certification/v1",
+  "date": "2026-11-20",
+  "task_id": "task_6cd2860a0d3b",
+  "repo": {
+    "name": "opencode-orchestration",
+    "base": "origin/master @ a09a1a2db6b96bb9537b2e78d01f923dd53fdd29",
+    "branch": "fix/hybrid-profile-certification-20261120",
+    "commit": null
+  },
+  "policy": {
+    "real_profile_writes": false,
+    "real_profile_read_for_credentials": false,
+    "temp_root": "C:\\Users\\<USER>\\AppData\\Local\\Temp\\oo-hybrid-cert-d5146c40bbf14bdfafcebea702cbb5e7",
+    "claude_homes_isolated": [
+      "<temp_root>\\claude-home",
+      "<temp_root>\\claude-home2",
+      "<temp_root>\\claude-home3"
+    ],
+    "opencode_target_home_isolated": "<temp_root>\\oc-home",
+    "no_commit_no_push": true,
+    "changelog_untouched": true,
+    "secrets_in_report": false
+  },
+  "environment": {
+    "claude": "2.1.329",
+    "opencode": "2.3.2",
+    "orca": "1.4.264",
+    "pwsh": "7.7.0",
+    "windows_powershell": "5.1"
+  },
+  "P1-04": {
+    "result": "candidate_pass",
+    "TESTED_IN_ISOLATION": "PASS",
+    "ACTIVE_PROFILE_VERIFIED": "NOT_VERIFIED",
+    "active_profile_note": "Nao tentado no perfil real por politica; nenhuma escrita em ~/.claude, ~/.config/opencode ou qualquer perfil real.",
+    "flow_discovery": {
+      "install_target_guard": "install.ps1 dot-source OrchestrationTargetGuard.ps1 e chama Assert-OrchestrationMutatingTargetAllowed sobre -TargetHome (linhas 198-200). -ClaudeHome e apenas repassado a Invoke-ClaudeHybridStep (linhas 77-85) e NAO e guardado. Com TargetHome padrao = USERPROFILE e sem -AllowUserProfileTarget, o comando falha antes de qualquer escrita: exit 1, MUTATING_TARGET_REQUIRES_EXPLICIT_PATH (observado com -WhatIf).",
+      "claude_only_path": "scripts/claude/install-claude-hybrid.ps1 -RepoRoot <repo> -ClaudeHome <tmp> e o caminho Claude-only; nao consulta TargetHome nem o guardrail.",
+      "uninstall_guardrail_gap": "uninstall.ps1 -ClaudeHybrid retorna nas linhas 38-45 ANTES do guardrail da linha 50: nao exige -AllowUserProfileTarget e o ClaudeHome padrao e ~/.claude. Observado com -WhatIf: plano [REMOVE-BLOCK] apontando para C:\\Users\\<USER>\\.claude, exit 0, nada escrito. Documentado como 'requer autorizacao para perfil real / use -ClaudeHome explicito'. NAO corrigido em codigo: uninstall.ps1 esta fora do escopo de escrita desta frente (scripts/claude/* apenas se bug real no script; aqui o comportamento e do chamador)."
+    },
+    "commands_executed_against_temp_home": [
+      {
+        "command": "pwsh -NoProfile -File scripts\\claude\\install-claude-hybrid.ps1 -RepoRoot <repo> -ClaudeHome <temp_root>\\claude-home",
+        "observed": "exit 0; [CREATE] CLAUDE.md + SKILL.md + 3 references; .opencode-orchestration-claude.json com block_sha256 e 4 hashes; marcadores start=1/end=1; nenhum settings.json."
+      },
+      {
+        "command": "pwsh -NoProfile -File scripts\\claude\\install-claude-hybrid.ps1 -RepoRoot <scratch-repo com SKILL.md alterado> -ClaudeHome <temp_root>\\claude-home",
+        "observed": "exit 0; [UPDATE] skills/hybrid-orchestration/SKILL.md; [SKIP] demais arquivos; marker CERT-UPDATE-MARKER-20261120 presente no arquivo instalado. Fonte canonica do repo nao alterada (copia scratch)."
+      },
+      {
+        "command": "pwsh -NoProfile -File uninstall.ps1 -ClaudeHybrid -ClaudeHome <temp_root>\\claude-home",
+        "observed": "exit 0; [REMOVE-BLOCK] + 4 [REMOVE]; skill dir e manifest ausentes pos-run; 0 marcadores no CLAUDE.md."
+      },
+      {
+        "command": "pwsh -NoProfile -File install.ps1 -ClaudeHybrid -TargetHome <temp_root>\\oc-home -ClaudeHome <temp_root>\\claude-home2 -WhatIf",
+        "observed": "exit 0; plano 'RESULT: INSTALLED=30 ... Nenhuma escrita realizada.' seguido do plano Claude hybrid; CLAUDE.md e skills/ inexistentes pos-run."
+      },
+      {
+        "command": "pwsh -NoProfile -File install.ps1 -ClaudeHybrid -TargetHome <temp_root>\\oc-home -ClaudeHome <temp_root>\\claude-home2",
+        "observed": "exit 0; manifest OpenCode em <temp_root>\\oc-home\\.opencode-orchestration\\manifest.json; CLAUDE.md, SKILL.md e manifest Claude em claude-home2."
+      }
+    ],
+    "commands_marked_real_profile_authorization_required": [
+      "install.ps1 -ClaudeHybrid (sem -TargetHome) -> bloqueado pelo guardrail; exigir -AllowUserProfileTarget e autorizacao explicita; ClaudeHome permanece sem guardrail.",
+      "uninstall.ps1 -ClaudeHybrid (sem -ClaudeHome) -> SEM guardrail, destino padrao ~/.claude; exigir -ClaudeHome explicito e autorizacao explicita para perfil real."
+    ],
+    "preservation": "Personalizacoes (bloco editado, skill editada, secao legada, backups) ja cobertas por P0-01/P0-02 em tests/distribution/claude-hybrid.tests.ps1; nao reimplementado.",
+    "skill_loadability": {
+      "frontmatter": "PASS - '<ClaudeHome>/skills/hybrid-orchestration/SKILL.md' com 'name: hybrid-orchestration' e 'description: >-' validos (linhas 1-13 da fonte).",
+      "runtime_discovery": "PASS - claude --debug com CLAUDE_CONFIG_DIR=<temp_root>\\claude-home3 carregou o skill do diretorio de usuario temporario.",
+      "debug_evidence": [
+        "[DEBUG] Loading skills from: managed=...\\.claude\\skills, user=<temp_root>\\claude-home3\\skills, project=[...]",
+        "[DEBUG] Loaded 1 unique skills (1 unconditional, 0 conditional, managed: 0, user: 1, project: 0, additional: 0, legacy commands: 0)",
+        "[DEBUG] getSkills returning: 1 skill dir commands, 0 plugin skills, 31 bundled skills, 1 builtin plugin skills",
+        "[DEBUG] Sending 14 skills via attachment (initial)",
+        "[DEBUG] Watching for changes in skill/command directories: <temp_root>\\claude-home3\\skills..."
+      ],
+      "reasoning": "O unico skill de usuario no ClaudeHome temporario e hybrid-orchestration; o runtime reporta 'user: 1' e aponta exclusivamente para o diretorio temporario, provando que o skill instalado e descoberto/carregado pelo Claude Code em isolamento.",
+      "headless_turn": "HOLD_NOT_VERIFIED",
+      "headless_turn_blocker": "claude -p --no-session-persistence com CLAUDE_CONFIG_DIR=<temp_root>\\claude-home3 encerrou exit 1 com 'Not logged in · Please run /login'. Nao ha ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_AUTH_TOKEN ou ANTHROPIC_BASE_URL no ambiente; as credenciais reais em ~/.claude/.credentials.json nao foram usadas ou copiadas (politica de isolamento). Logo a invocacao do skill por um turno real do modelo nao pode ser provada sem o perfil real."
+    },
+    "validation": {
+      "claude-hybrid.tests.ps1 - pwsh 7.7.0": "pass=46 fail=0 exit 0 (9 asserts novos P1-04.1..P1-04.5)",
+      "claude-hybrid.tests.ps1 - powershell 5.1": "pass=46 fail=0 exit 0",
+      "test-package-consistency.ps1 - pwsh": "17 OK / 0 FAIL exit 0",
+      "test-package-consistency.ps1 - powershell 5.1": "17 OK / 0 FAIL exit 0",
+      "git diff --check": "exit 0"
+    }
+  },
+  "P1-05": {
+    "result": "blocked",
+    "status": "HOLD",
+    "candidate_pass": false,
+    "objective": "Missao de 2 Tasks dependentes em repo descartavel, interromper a sessao coordenadora com worker rodando e retomar somente pelo estado do Orca, sem Dispatch duplicado nem perda.",
+    "blocker": "Nao e possivel iniciar um coordenador Claude headless controlado em ambiente descartavel: o CLI exige login e nao ha credenciais de provider no ambiente isolado. Usar as credenciais do perfil real violaria a politica de isolamento e poderia gerar gasto/efeito externo. Sem coordenador iniciavel, nao ha sessao para interromper e o cenario nao pode ser executado com seguranca.",
+    "evidence": [
+      "CLAUDE_CONFIG_DIR=<temp_root>\\claude-home3 claude -p 'ping' --no-session-persistence -> exit 1, 'Not logged in · Please run /login'.",
+      "Variaveis de autenticacao (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_AUTH_TOKEN) ausentes; ANTHROPIC_BASE_URL ausente.",
+      "Este worker nao pode interromper a sessao do proprio coordenador (terminal term_6e0319ef...) e nao deve iniciar workers fora de um repo descartavel; worker-start --worktree current operaria neste repo, explicitamente proibido."
+    ],
+    "hard_limits_honored": {
+      "max_opencode_workers": 0,
+      "workers_outside_disposable_repo": 0,
+      "touched_this_repo_source": false,
+      "touched_real_profile": false,
+      "new_infrastructure": false
+    },
+    "resources_created": [],
+    "resources_released": [],
+    "resources_removed": [],
+    "note": "Nenhum worker OpenCode foi iniciado e nenhuma infraestrutura foi criada para P1-05; nada a liberar ou remover. HOLD documentado e resultado aceito conforme a tarefa."
+  },
+  "cleanup": {
+    "temp_root_removed_after_capture": true,
+    "files_created_in_repo": [
+      "evidence/v3.1/claude-hybrid/certification-2026-11-20.json",
+      "docs/HYBRID-ORCHESTRATION.md (correcao dos comandos e secao de certificacao)",
+      "tests/distribution/claude-hybrid.tests.ps1 (9 asserts P1-04)"
+    ],
+    "no_source_claude_changes": true,
+    "no_changelog_changes": true
+  }
+}
