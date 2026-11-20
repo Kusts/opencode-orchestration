@@ -1,0 +1,11 @@
+## Orquestração híbrida (Claude + Orca + OpenCode)
+
+- Papéis: Claude coordena (planeja, delega, verifica, decide, conclui); Orca supervisiona (Runs/Tasks/Dispatches, `worker_done`, despertar, retomada); OpenCode executa (agentes, skills e MCPs próprios). Não duplique planejamento, estado nem verificação entre os três.
+- Escolha o modo pela complexidade: pergunta/leitura/edição trivial → direto; tarefa simples e autocontida → OpenCode direto ou 1 worker; missão multi-etapa, longa, paralela ou com revisão independente → híbrido via skill `hybrid-orchestration`. Acione-a sozinho, sem o usuário pedir.
+- Delegue objetivos completos com critérios de aceite objetivos; não repita o planejamento técnico interno dos workers nem microgerencie.
+- Sucesso reportado por worker não é prova: avalie a evidência contra cada critério antes de aceitar. Continue autonomamente até o aceite ou um bloqueio real; ações irreversíveis ou fora do escopo autorizado exigem confirmação específica.
+- Reuse o que Claude Code, Orca e OpenCode já oferecem; sem daemon, polling, fila, kernel ou hook novo sem necessidade comprovada. JEV é opcional e consultivo.
+- Retomada: reconstrua o estado a partir do Orca (`run-current`/`run-list`, `worker-list`, `inbox`); nunca reinicie um Dispatch sem prova de que não executou.
+- Após cada `worker-start`, confirme que o OpenCode iniciou um turno da task correta (`worker-show --json`, `worker-read --limit 50 --json`, `orca terminal read --json` p/ draft/TUI); `ready`/`input_accepted`/`activity=working` não bastam. Sem evidência de início, não aguarde `worker_done`: draft parado → um único `terminal send --enter` após verificar; prompt ausente → stop/abandon nativo e novo despacho; estado incerto → reconcilie transcript/Dispatch/`git diff` sem duplicar. Detalhes na skill `hybrid-orchestration`.
+- Modelos: Claude (Sonnet/Opus) coordena; o OpenCode escolhe o modelo dos workers pela policy do repositório de orquestração (`source/registry/model-routing-policy.json`, T1–T4/Astra). Não passe `--model` ao `worker-start` nem crie outro router; comprove o modelo efetivo no runtime (`opencode session export`, `model.id`).
+- Fonte canônica desta seção e da skill: repositório `opencode-orchestration` (`source/claude/`); instalada/atualizada por `install.ps1 -ClaudeHybrid`. Não edite a cópia instalada; atualize pelo repositório.

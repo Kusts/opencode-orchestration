@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **Modo híbrido nativo (2026-11-19):** `install.ps1 -ClaudeHybrid` /
+  `uninstall.ps1 -ClaudeHybrid` instalam a partir de `source/claude/` o bloco
+  marcado em `CLAUDE.md` e a skill `hybrid-orchestration` (+ referências do
+  contrato OpenCode, P0 de despacho e retomada), com manifest, backup e
+  rollback standalone; sem plugin, hook ou estado novo. Teste
+  `tests/distribution/claude-hybrid.tests.ps1` (24 asserts, PS5.1+PS7).
+  Homologação A–G: `evidence/v3.1/claude-hybrid/homologation-2026-11-19.json`.
+
 - **Permissões de shell dos workers:** por decisão explícita do usuário,
   removidas as regras de `deny`/`ask` e allowlists específicas de shell; os
   19 agentes agora têm shell irrestrito. `edit` por papel, `task: deny` e

@@ -23,18 +23,27 @@ coordenação é orientada a eventos do próprio Orca; a retomada usa `run-curre
 espera ativo. A hierarquia de subagentes permanece rasa (`subagent_depth: 1`):
 workers não criam subagentes próprios.
 
-## Instruções permanentes
+## Instruções permanentes e instalação
 
-As regras estáveis não são duplicadas neste arquivo. Elas vivem em:
+O repositório é a fonte canônica; nada é copiado à mão para `~/.claude`:
 
-- `~/.claude/CLAUDE.md`, seção **"Orquestração híbrida (Claude + Orca +
-  OpenCode)"** — política de coordenação e limites de autonomia.
-- `~/.claude/skills/hybrid-orchestration/SKILL.md` — técnica/fluxo da skill de
-  orquestração híbrida.
+- `source/claude/CLAUDE.hybrid.md` — seção "Orquestração híbrida (Claude +
+  Orca + OpenCode)", instalada como bloco marcado em `~/.claude/CLAUDE.md`.
+- `source/claude/skills/hybrid-orchestration/` — `SKILL.md` + `references/`
+  (`dispatch-confirmation.md`, `opencode-contract.md`, `resume.md`).
 
-Aqui apenas se aponta para esses arquivos; o conteúdo deles não é copiado nem
-reinterpretado. Em caso de divergência, as instruções permanentes e o pedido
-atual do usuário prevalecem sobre este resumo.
+Instalação opt-in, preservando o que já existe (backup em
+`<ClaudeHome>/backups/opencode-orchestration-claude/<ts>/`, manifest com SHA256):
+
+```powershell
+.\install.ps1 -ClaudeHybrid -WhatIf   # plano (CREATE/UPDATE/ADOPT/CONFLICT)
+.\install.ps1 -ClaudeHybrid           # aplica; sem o switch o OpenCode segue standalone
+.\uninstall.ps1 -ClaudeHybrid         # rollback: remove só o gerenciado
+```
+
+Seção legada sem marcadores é adotada (sem duplicar); arquivo editado pelo usuário
+vira `CONFLICT` e é preservado. Não toca `settings.json`, hooks nem outras skills.
+Em divergência, o pedido atual do usuário prevalece.
 
 ## Integração Orca
 
@@ -54,21 +63,20 @@ ao seu próprio terminal.
 
 ## Confirmação de execução P0 após `worker-start`
 
-Após `worker-start`, confirmar que o worker realmente começou a executar antes
-de prosseguir. Três casos:
+`ready`/`input_accepted`/`activity=working` não provam que o turno da task
+correta começou. A skill exige uma rodada de verificação (`worker-show`,
+`worker-read`, `terminal read` só se faltar evidência) e trata 5 casos:
+executou; texto no draft sem submeter (um único `terminal send --enter`); prompt
+ausente (`worker-stop`/`abandon` + `worker-start --task --retry-of` sem `--spec`);
+Dispatch sem execução observável; estado ambíguo após falha de comunicação
+(`request-show`/`--retry-request`, reconciliar). Detalhe normativo em
+`source/claude/skills/hybrid-orchestration/references/dispatch-confirmation.md`.
+Princípio: comprovadamente não iniciado ⇒ recupera; desconhecido ⇒ `HOLD`.
 
-- **Caso A — Enter único:** enviar `orca terminal send --terminal <H> --enter`
-  uma única vez para disparar/Confirmar a execução no terminal do worker.
-- **Caso B — reinício sem duplicar:** `worker-stop` ou `worker-abandon`, depois
-  `worker-start --task <id> --retry-of <dispatch> --agent ... --worktree ...`
-  **sem `--spec`**. O `--retry-of` vincula o novo worker ao despacho anterior.
-- **Caso C — reconciliar sem duplicar:** antes de redespachar, consultar o
-  estado no Orca (`run-current`, `worker-list`, inbox) e reconciliar com o
-  despacho existente; nunca criar um segundo worker para o mesmo trabalho sem
-  prova de que o primeiro não executou.
+## Homologação A–G
 
-O princípio é não duplicar efeito: sessão presente, timeout ou resultado
-desconhecido implicam retenção (`HOLD`), não reenvio cego.
+Ver `evidence/v3.1/claude-hybrid/homologation-2026-11-19.json` (ambiente
+descartável; cenários simulados identificados como tal).
 
 ## Configuração T3/T4 (policy 1.6.1)
 

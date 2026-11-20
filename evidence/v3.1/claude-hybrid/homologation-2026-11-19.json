@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-19",
+  "environment": {
+    "claude": "2.1.329", "opencode": "2.3.2", "orca": "1.4.264",
+    "repo": "repo git descartavel em scratchpad (add.js/test.js), registrado no Orca so para o teste",
+    "run": "run_8ca6f9a598e2"
+  },
+  "preconditions": {
+    "installer_tests": "claude-hybrid 24/24 (PS5.1 e PS7)",
+    "distribution_suite": "25 PASS / 0 FAIL / 1 SKIP",
+    "package_consistency": "17/17",
+    "real_claude_home": "nao alterado (apenas -WhatIf); install real aguarda confirmacao"
+  },
+  "scenarios": {
+    "A_activation": {"result": "PASS", "evidence": "claude -p novo com missao multi-etapa invocou Skill hybrid-orchestration e produziu plano DAG (implementar -> revisao independente), sem executar comandos", "caveat": "carregou a copia viva de ~/.claude (user-level tem precedencia sobre project-level); a copia do repo foi instalada em .claude/ do repo descartavel pelo instalador, mas so sera a efetiva apos o install real"},
+    "B_dispatch": {"result": "PASS", "evidence": "worker-start ctx_cd8bbdf52693 -> turno da task correta provado por worker-read/terminal; worker_done; diff e node test.js reverificados pelo coordenador; 1 Dispatch"},
+    "C_delivery_failure": {
+      "result": "PASS (falhas simuladas, recuperacao real)",
+      "case2_draft_unsubmitted": "terminal bare com texto digitado sem Enter (draft visivel, sem turno); um unico terminal send --enter; draft consumido e contador de contexto 53.1K => turno iniciado",
+      "case3_prompt_absent": "Dispatch ctx_93638b81af55 parado antes de qualquer efeito (sem C.txt, sem diff); worker-start --task --retry-of sem --spec => ctx_456b893d3c8f concluiu; Task com 2 Dispatches (1 stopped sem efeito, 1 succeeded), sem execucao duplicada"
+    },
+    "D_decision": {"result": "PASS (defeito injetado)", "evidence": "worker acertou roundHalf de primeira; coordenador injetou regressao (Math.round puro), verify-D.js e test.js falharam (-2.5->-2); correcao devolvida ao mesmo worker via send com a evidencia (ctx_df1339fb9d21); coordenador revalidou OK + VERIFY-D OK", "caveat": "o defeito foi injetado, nao espontaneo"},
+    "E_continuity": {"result": "PASS", "evidence": "worker HOM-E ativo; claude -p NOVO (sem memoria) reconstruiu estado via run-current/worker-show/git diff, reconheceu worker vivo e nao reiniciou nada; Dispatches 4->4, Tasks 3->3; HOM-E concluiu e foi verificado", "caveat": "interrupcao simulada por sessao nova, nao por kill da sessao original"},
+    "F_standalone": {"result": "PASS", "evidence": "opencode run com ORCA_*/CLAUDE_* removidos do ambiente respondeu e rodou node test.js; install.ps1 sem -ClaudeHybrid nao cria .claude"},
+    "G_models": {"result": "PASS", "evidence": "session export: openai/gpt-6.1-terra (T3) e openai/gpt-6.1-sol (T4) efetivos; planner/T1 = opencode-go/hy4-flash-free; models.jsonc local alinhado (strong=Terra, frontier=Sol)"}
+  },
+  "failures_found": [],
+  "rollback": "uninstall.ps1 -ClaudeHybrid remove so o gerenciado; testado em claude-hybrid.tests.ps1"
+}

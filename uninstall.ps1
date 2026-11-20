@@ -21,6 +21,9 @@ param(
   [string]$TargetHome,
   [switch]$AllowUserProfileTarget,
   [string]$ManifestPath,
+  # Opt-in: remove tambem a integracao Claude hybrid (somente conteudo gerenciado).
+  [switch]$ClaudeHybrid,
+  [string]$ClaudeHome = '',
   [ValidateSet('Auto', 'V1', 'V2')]
   [string]$Runtime = 'Auto'
 )
@@ -805,4 +808,11 @@ Write-Host ''
 Write-Host 'Uninstall concluido.' -ForegroundColor Green
 foreach ($l in $plan) { Write-Host ('  ' + $l) -ForegroundColor DarkGray }
 foreach ($w in $warnings) { Write-Host ('AVISO: ' + $w) -ForegroundColor Yellow }
+if ($ClaudeHybrid) {
+  $chScript = Join-Path $PSScriptRoot 'scripts\claude\install-claude-hybrid.ps1'
+  $chArgs = @{ RepoRoot = $PSScriptRoot; Uninstall = $true }
+  if (-not [string]::IsNullOrWhiteSpace($ClaudeHome)) { $chArgs.ClaudeHome = $ClaudeHome }
+  & $chScript @chArgs
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 exit 0
