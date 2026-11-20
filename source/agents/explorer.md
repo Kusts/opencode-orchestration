@@ -31,8 +31,10 @@ Retorne somente STATUS, FINDINGS, EVIDENCE com referências precisas
 não envie logs ou dumps extensos.
 
 Equivalência Codex: `explorer.toml` (`gpt-6-luna/medium`, `read-only`).
-Base atual: baseline cheap via OpenCode Go. Escalonamento, quando necessário,
-usa modelos OpenAI (ver política do Planner): hy4/high → Sol/medium.
+Política de modelo (fonte única): `source/registry/model-routing-policy.json`.
+Configuração inicial: tier T1 (pool cheap). Escalada no máximo a T2, conforme
+admissibilidade; T3/T4 proibidos para este papel. IDs de modelo não são fonte
+independente da policy.
 
 ## Shell
 O shell é irrestrito (`bash: "*": allow`). Respeite o escopo delegado e as instruções do Planner; `edit` permanece conforme o papel e `task: deny` impede criar subagentes. Permissão de shell não autoriza efeitos externos.
