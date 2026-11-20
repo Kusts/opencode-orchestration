@@ -60,10 +60,10 @@ histórica, sem efeito).
   O modelo global e `agents.build.model` usam `opencode-go/hy4-flash-free`; outros agentes não herdam Luna.
   O OpenCode 2.2.5 não oferece fallback nativo de modelo primario; trocas manuais são
   necessárias. Sem prova segura de que a execucao nao comecou, nao ha replay automatico
-  apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Sonnet, nunca T3/T4
-  por indisponibilidade; nunca Sonnet, Opus, Astra, T3 ou T4.
+  apos timeout ambiguo. Nunca a cadeia generica DeepSeek Go/Muse/Haiku/Luna, nunca Terra, nunca T3/T4
+  por indisponibilidade; nunca Terra, Sol, Sonnet/Opus (alternativas), Astra, T3 ou T4.
 - As cadeias abaixo definem candidatos permitidos pela policy; a seleção do próximo candidato é mediada pelo Planner e não executada automaticamente pelo runtime.
-- Researcher/Explorer/Docs Manager: T1 inicial, T2 sob escalonamento quando requerido. Tester: T0 determinístico, T1 trivial/simples, T2 não-trivial. Nenhum dos quatro usa T3/T4 automaticamente. Engineering-advisor: mínimo T3 (Sonnet primário/Terra fallback), T2 proibido.
+- Researcher/Explorer/Docs Manager: T1 inicial, T2 sob escalonamento quando requerido. Tester: T0 determinístico, T1 trivial/simples, T2 não-trivial. Nenhum dos quatro usa T3/T4 automaticamente. Engineering-advisor: mínimo T3 (Terra primário/Sonnet alternativa), T2 proibido.
 - Elegibilidade de substituição por tier (a lista define candidatos, não autoriza
   retry por si só). O protocolo Planner-mediado comprovado está descrito em
   **Fallback nativo mediado pelo Planner** abaixo:
@@ -71,12 +71,13 @@ histórica, sem efeito).
   - **T2 geral:** candidatos e ordem constam em `source/registry/model-routing-policy.json`. Capacidade do provider e prova observada de no-start são condições; caller `NoExecutionStarted=true` não prova não-início.
     `opencode/deepseek-v4.1-flash-free` (Console) permanece desabilitado e fora de qualquer cadeia. A decisão datada de 2026-11-04 que selecionava DeepSeek Go como primário T2 é histórica/superada pela policy vigente; ZDR segue `expired-unconfirmed` (não envie dados sensíveis cuja proteção exija ZDR).
   - **T3/T4:** candidatos, ordem e condições de elegibilidade constam em `source/registry/model-routing-policy.json`; T2 degradado só para papéis admissíveis.
-  - **Cadeia canônica de escalonamento (decisão 2026-11-10, issue #208; resumo histórico, fonte operacional é o registry):** o caminho
-    autorizado para prova é T3 `claude-agent/sonnet` → T4 `claude-agent/opus` →
-    `openai/gpt-6-astra` (excepcional, somente após prova T4 válida). `openai/gpt-6.1-sol`
-    é **candidato de mesmo tier T4**, não um degrau entre T3 e Astra; `claude-agent/fable`
-    permanece HOLD. A formulação histórica da issue #208 que interpõe Sol entre T3 e Astra não
-    altera esta política. A consistência entre `source/registry/model-routing-policy.json`
+  - **Cadeia canônica de escalonamento (decisão M4.5-T3T4-GPT; migração de T3/T4 para GPT, resumo histórico, fonte operacional é o registry):** o caminho
+    autorizado para prova é T3 (Terra) `openai/gpt-6.1-terra` → T4 (Sol) `openai/gpt-6.1-sol` →
+    `openai/gpt-6-astra` (excepcional, somente após prova T4 válida e orçamento excepcional). `claude-agent/opus`
+    permanece como alternativa de mesmo tier T4 e `claude-agent/sonnet` como alternativa de mesmo tier T3;
+    `claude-agent/fable` permanece HOLD. Sol é o primário T4, não um degrau entre T3 e Astra.
+    A formulação histórica da issue #208 (T3 Sonnet → T4 Opus → Astra) está superada por esta decisão.
+    A consistência entre `source/registry/model-routing-policy.json`
     e este adapter é verificada por `scripts/test-package-consistency.ps1` (check 17);
     mudar o baseline exige política, adapter e contrato de verificação na mesma decisão.
     <!-- model-chain:canonical source=model-routing-policy.json -->
@@ -107,7 +108,7 @@ histórica, sem efeito).
   underscore refere-se apenas ao TOML legado do Codex), `architect`. Escala
   vertical: decisões difíceis e risco.
 - Advisor Especializado Sob Demanda (`engineering-advisor`, Issue #60):
-  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Sonnet primário, Terra candidato, T2 proibido (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY). Opus/Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
+  Quando o Planner necessitar de raciocínio aprofundado diante de impasses técnicos reais ou decisões arquiteturais complexas, consulta o `engineering-advisor` sob demanda. O Advisor sempre parte de T3 Terra primário, Sonnet alternativa, T2 proibido (decisão explícita ROUTER-V14-ADVISOR-T3-ONLY). Sol/Astra somente via prova kernel-owned existente. O Advisor é estritamente read-only e consultivo: produz recomendações acionáveis, mas nunca despacha workers, nunca emite DONE e nunca altera o Kernel.
 - Escalonamentos para Astra são temporários, por subtarefa, via override
   no spawn — nunca editando este arquivo nem os prompts dos agentes — e
   sempre com reset ao baseline. Antes de escalar, pergunte: falta
@@ -117,18 +118,18 @@ histórica, sem efeito).
   subtarefa; por objetivo pai, no máximo 2 execuções acima do baseline, das
   quais no máximo 1 pode usar Astra. Astra substitui, não soma. Nunca
   Astra em paralelo para a mesma pergunta. Nunca Astra como fan-out.
-- Prova kernel-owned (Router v1.4, sem executor/plugin/API paralelo): **somente o caminho `task-kernel model-select` com prova Task Kernel sticky autoriza escalonamento**. T3 proof usa primary `claude-agent/sonnet`; T4 proof usa primary `claude-agent/opus` e requer prova T3 anterior. Astra/Fable mantêm gates excepcionais existentes. Kernel prova via verify-run `kernel-executed` com model/provider/session/message/run/policy hash. T3 proof = `claude-agent/sonnet`, T4 proof = `claude-agent/opus`; seleção após prova T4 Opus pode selecionar Astra sob política/papel; sem aprovação manual por chamada; candidatos técnicos permanecem HOLD; Fable permanece HOLD sem prova específica do modelo.
-  T3 (Sonnet) → T4 (Opus) somente com `Get-OrchestrationTaskModelFailureProof -TaskId <id> -RequiredTier T3`
+- Prova kernel-owned (Router v1.4, sem executor/plugin/API paralelo): **somente o caminho `task-kernel model-select` com prova Task Kernel sticky autoriza escalonamento**. T3 proof usa primary `openai/gpt-6.1-terra`; T4 proof usa primary `openai/gpt-6.1-sol` e requer prova T3 anterior. Astra/Fable mantêm gates excepcionais existentes. Kernel prova via verify-run `kernel-executed` com model/provider/session/message/run/policy hash. T3 proof = `openai/gpt-6.1-terra`, T4 proof = `openai/gpt-6.1-sol`; seleção após prova T4 Sol pode selecionar Astra sob política/papel; sem aprovação manual por chamada; candidatos técnicos permanecem HOLD; Fable permanece HOLD sem prova específica do modelo.
+  T3 (Terra) → T4 (Sol) somente com `Get-OrchestrationTaskModelFailureProof -TaskId <id> -RequiredTier T3`
   (`ok=true`, `policy_hash` igual ao da política vigente e `model`/`provider`
-  canônicos de `claude-agent/sonnet` conforme policy). Opus→Astra via `task-kernel model-select` somente com
-  prova `RequiredTier T4` válida da mesma tarefa (que exige T3 + Opus falhos
+  canônicos de `openai/gpt-6.1-terra` conforme policy). Sol→Astra via `task-kernel model-select` somente com
+  prova `RequiredTier T4` válida da mesma tarefa (que exige T3 + Sol falhos
   persistidos; checagem T4 priorizada antes da T3 de head, sem apagar o
-   histórico). Sem prova T4, Opus somente com T3 válida; sem T3, nunca T4. Astra desabilitada ou fora de
+   histórico). Sem prova T4, Sol somente com T3 válida; sem T3, nunca T4. Astra desabilitada ou fora de
   `eligible_roles` ⇒ sem Astra (fail closed sem bypass); Fable permanece HOLD sem prova específica do modelo. Recibos/bools arbitrários (`T3FailureVerified`,
   `T3FailureReceipt`, `VerifiedFailureReceipt`), `FailureCount` e risco nunca
-   autorizam T4/Astra/Fable. Opus→Sol continua candidato de política e não tem transição real provada. Rota Planner-mediada: `task-kernel model-select`
+   autorizam T4/Astra/Fable. Sonnet/Opus permanecem como alternativas de mesmo tier na política e não têm transição real provada. Rota Planner-mediada: `task-kernel model-select`
    (somente leitura; retorna `tier` + `model` no formato `providerID/modelID`
-  — `claude-agent/opus` em T3 válida, `openai/gpt-6-astra` em T4 válida posterior — + `policy_hash` + refs
+  — `openai/gpt-6.1-sol` em T3 válida, `openai/gpt-6-astra` em T4 válida posterior — + `policy_hash` + refs
   da prova) → Planner informa `model` verbatim na propriedade `model` da
   ferramenta nativa `subagent` → refs `session:<child>` + `message:<assistant>`
   → `task-kernel verify-run` → `model-attempt` → `model-proof`. A CLI nunca
@@ -346,9 +347,9 @@ independência material. Paralelismo segue o Governor (cheap pool, Wave + Barrie
 
 Escalonamento (mesmo mecanismo: override temporário no spawn + reset ao
 baseline; nunca editar a definição; aplicam-se as cotas já definidas):
-`requirements-analyst` baseline cheap → sem escalonamento para Opus/Astra; apenas dentro de seu tier admissível (T1/T2/T3 conforme policy, sem T4);
-`engineering-advisor` baseline T3 Sonnet primário, Terra candidato → Opus/Astra somente via prova kernel-owned;
-`product-designer` baseline cheap (sem T4; sem recomendação de Opus/Astra); `skeptic` baseline cheap (sem T4; sem recomendação de Opus/Astra). Nunca reutilize um
+`requirements-analyst` baseline cheap → sem escalonamento para Sol/Astra; apenas dentro de seu tier admissível (T1/T2/T3 conforme policy, sem T4);
+`engineering-advisor` baseline T3 Terra primário, Sol/Astra somente via prova kernel-owned; Sonnet permanece como alternativa;
+`product-designer` baseline cheap (sem T4; sem recomendação de Sol/Astra); `skeptic` baseline cheap (sem T4; sem recomendação de Sol/Astra). Nunca reutilize um
 worker escalonado após a subtarefa.
 
 ### Planner Bridge: Router shadow (advisory, somente observação)

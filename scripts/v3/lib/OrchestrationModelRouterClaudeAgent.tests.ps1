@@ -52,7 +52,7 @@ function New-CaT4Request($Selection) {
 
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-CA ($p.Status -eq 'POLICY_LOADED') 'policy-loads'
-Assert-CA ($p.PolicyVersion -eq '1.6.0') 'policy-stays-v1.5'
+Assert-CA ($p.PolicyVersion -eq '1.6.1') 'policy-v1.6.1'
 $pol = $p.Policy
 
 # 1. Provider registration (single catalog, no second catalog).
@@ -163,7 +163,7 @@ Assert-CA ($haikuRoles -notcontains 'build') 'haiku-not-build-eligible-luna-only
 # 10. T3 order: Sonnet primary; Sonnet failure surfaces Terra as the
 #     non-authorizing audit candidate (HOLD, same tier before any T2 downgrade).
 $sT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-CA ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'claude-agent/sonnet') 'T3-runtime-sonnet'
+Assert-CA ($sT3.Tier -eq 'T3' -and $sT3.CatalogModel -eq 'openai/gpt-6.1-terra') 'T3-runtime-terra'
 $fSonnet = Resolve-OrchestrationModelFallback -RequestedSelection $sT3 -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet') -TriggerReason 'RATE_LIMIT' -NoExecutionStarted $true -IgnoreUserConfig $true -ClaudeAgentProven $true
 Assert-CA ($fSonnet.Status -eq 'FALLBACK_HOLD_NO_INDEPENDENT_NO_START_PROOF' -and $fSonnet.FallbackModel -eq $null -and $fSonnet.CandidateModel -eq 'openai/gpt-6.1-terra' -and $fSonnet.FallbackTier -eq 'T3') 'T3-sonnet-failure-holds-terra-candidate'
 

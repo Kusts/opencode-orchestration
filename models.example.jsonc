@@ -9,8 +9,8 @@
   "cheap": "openai/gpt-6-luna",
   // T1: hy4 (OpenCode Go); fallback opencode/mimo-v2.6-flash-free.
   "free": "opencode-go/hy4-flash-free",
-  // T3: alias Sonnet (claude-agent/sonnet; nome de catalogo Sonnet 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Fallback tecnico Terra.
-  "strong": "claude-agent/sonnet",
-  // T4: alias Opus (claude-agent/opus; nome de catalogo Opus 5.5) com resolucao runtime-unverified; sem modelID concreto imutavel provado. Transporte mesmo tier Opus->Sol; candidatas T2 degradadas DeepSeek Go->Muse apenas audit-only HOLD para papeis admissiveis a T2 (sem retry); Astra/Fable excepcionais e proof-gated, nunca automaticos.
-  "frontier": "claude-agent/opus"
+  // T3: Terra (openai/gpt-6.1-terra) e a primaria; Sonnet (claude-agent/sonnet) permanece como alternativa de mesmo tier com resolucao runtime-unverified. Rollback = reverter estes campos.
+  "strong": "openai/gpt-6.1-terra",
+  // T4: Sol (openai/gpt-6.1-sol) e a primaria; Opus (claude-agent/opus) permanece como alternativa de mesmo tier com resolucao runtime-unverified. Transporte mesmo tier Sol->Opus; candidatas T2 degradadas DeepSeek Go->Muse apenas audit-only HOLD para papeis admissiveis a T2 (sem retry); Astra excepcional e proof-gated (orcamento excepcional), Fable em HOLD, nunca automaticos.
+  "frontier": "openai/gpt-6.1-sol"
 }

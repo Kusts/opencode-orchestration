@@ -100,10 +100,11 @@ function Test-OrchestrationModelChainConsistency {
     .SYNOPSIS
         Verifica se a politica e o adapter V2 descrevem a mesma cadeia.
     .DESCRIPTION
-        Baseline decidido em 2026-11-10 (issue #208): T3 Sonnet -> T4 Opus ->
-        Astra excepcional. Sol e candidato de mesmo tier T4, nunca degrau
-        entre T3 e Astra. Fable permanece HOLD. Mudar o baseline exige mudar
-        politica, adapter e este contrato de forma deliberada.
+        Baseline migrado em M4.5-T3T4-GPT: T3 Terra -> T4 Sol ->
+        Astra excepcional. Sonnet/Opus permanecem como alternativas de mesmo
+        tier; Astra nunca e degrau entre T3 e o primario T4. Fable permanece
+        HOLD. Mudar o baseline exige mudar politica, adapter e este contrato
+        de forma deliberada.
     .OUTPUTS
         Objeto com ok, errors e chain.
     #>
@@ -184,8 +185,8 @@ function Test-OrchestrationModelChainConsistency {
 
     $arrow = [string][char]0x2192
     $arrowEsc = [regex]::Escape($arrow)
-    $canonicalT3T4 = 'T3 (Sonnet) ' + $arrow + ' T4 (Opus)'
-    $canonicalOpusAstra = 'Opus' + $arrow + 'Astra'
+    $canonicalT3T4 = 'T3 (Terra) ' + $arrow + ' T4 (Sol)'
+    $canonicalOpusAstra = 'Sol' + $arrow + 'Astra'
 
     if (-not $adapter.Contains($canonicalT3T4)) {
         [void]$errors.Add('adapter-missing-chain: falta "' + $canonicalT3T4 + '"')

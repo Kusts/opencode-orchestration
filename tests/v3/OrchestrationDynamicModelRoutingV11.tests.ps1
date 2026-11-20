@@ -42,7 +42,7 @@ Write-Host "=== FASE 1: CATALOGO CONFIGURAVEL E PROVIDERS INDEPENDENTES ==="
 $policyRes = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-V11 ($policyRes.Status -eq 'POLICY_LOADED') "Politica canonica model-routing-policy.json carregada com sucesso"
 Assert-V11 ($policyRes.PolicyHash.Length -eq 64) "PolicyHash SHA-256 valido (64 hex characters): $($policyRes.PolicyHash)"
-Assert-V11 ($policyRes.PolicyVersion -eq '1.6.0') "PolicyVersion e 1.6.0"
+Assert-V11 ($policyRes.PolicyVersion -eq '1.6.1') "PolicyVersion e 1.6.1"
 
 $pol = $policyRes.Policy
 
@@ -70,10 +70,10 @@ foreach ($mId in @('openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6-astr
 $cat = Get-OrchestrationUserConfigCatalog -IgnoreUserConfig $true
 Assert-V11 ($cat['T1'].CatalogModel -eq 'opencode-go/hy4-flash-free') "T1 primario do catalogo e HY4 Flash Free"
 Assert-V11 ($cat['T2'].CatalogModel -eq 'openai/gpt-6-luna') "T2 primario do catalogo e Luna"
-Assert-V11 ($cat['T3'].CatalogModel -eq 'claude-agent/sonnet') "T3 primario do catalogo e Sonnet"
-Assert-V11 ($cat['T3'].AlternativeModel -eq 'openai/gpt-6.1-terra') "T3 fallback do catalogo e Terra"
-Assert-V11 ($cat['T4'].CatalogModel -eq 'claude-agent/opus') "T4 primario do catalogo e Opus"
-Assert-V11 ($cat['T4'].AlternativeModel -eq 'openai/gpt-6.1-sol') "T4 fallback do catalogo e Sol"
+Assert-V11 ($cat['T3'].CatalogModel -eq 'openai/gpt-6.1-terra') "T3 primario do catalogo e Terra"
+Assert-V11 ($cat['T3'].AlternativeModel -eq 'claude-agent/sonnet') "T3 alternativa do catalogo e Sonnet"
+Assert-V11 ($cat['T4'].CatalogModel -eq 'openai/gpt-6.1-sol') "T4 primario do catalogo e Sol"
+Assert-V11 ($cat['T4'].AlternativeModel -eq 'claude-agent/opus') "T4 alternativa do catalogo e Opus"
 
 Write-Host "=== FASE 2: MODEL ROUTER E SELECAO POR AGENTE/RISCO ==="
 
@@ -97,7 +97,7 @@ Assert-V11 ($selCoder.selected_model_id -eq 'openai/gpt-6-luna') "Coder default 
 
 $selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 1 -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selCoderRetry.Tier -eq 'T3') "Coder complex apos 1 falha escala para T3"
-Assert-V11 ($selCoderRetry.selected_model_id -eq 'claude-agent/sonnet') "Coder T3 seleciona Sonnet"
+Assert-V11 ($selCoderRetry.selected_model_id -eq 'openai/gpt-6.1-terra') "Coder T3 seleciona Terra"
 
 # 2.4 Tester: T0 deterministico por default, T1 HY4 se RequiresLlm
 $selTesterT0 = Resolve-OrchestrationModelSelection -AgentName 'tester' -Complexity 'trivial' -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -112,11 +112,11 @@ Assert-V11 ($selTesterLlm.selected_model_id -eq 'opencode-go/hy4-flash-free') "T
 # 2.5 Security-Reviewer: Sonnet T3; Opus T4 somente com prova kernel-owned; proibido T0/T1/T2
 $selSecUnauth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selSecUnauth.Tier -eq 'T3') "Security-Reviewer sem prova kernel-owned permanece em T3 Sonnet"
-Assert-V11 ($selSecUnauth.selected_model_id -eq 'claude-agent/sonnet') "Security-Reviewer T3 usa Sonnet"
+Assert-V11 ($selSecUnauth.selected_model_id -eq 'openai/gpt-6.1-terra') "Security-Reviewer T3 usa Terra"
 
 $selSecAuth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -T3FailureVerified $true -T3FailureReceipt 'verified:security-v11' -NativeModelOverrideProven $true -IgnoreUserConfig $true
 Assert-V11 ($selSecAuth.Tier -eq 'T3') "Security-Reviewer critical com recibo arbitrario (sem TaskId/prova kernel) permanece em T3"
-Assert-V11 ($selSecAuth.selected_model_id -eq 'claude-agent/sonnet') "Security-Reviewer T3 usa Sonnet sem prova kernel"
+Assert-V11 ($selSecAuth.selected_model_id -eq 'openai/gpt-6.1-terra') "Security-Reviewer T3 usa Terra sem prova kernel"
 
 # 2.6 Restricao de AllowedProviders
 $selAllowedOpencodeOnly = Resolve-OrchestrationModelSelection -AgentName 'coder' -AllowedProviders @('opencode-go') -NativeModelOverrideProven $true -IgnoreUserConfig $true
@@ -196,10 +196,10 @@ Assert-V11 ($sigInvalid.Admitted -eq $false) "Escalonamento ao Advisor meramente
 
 # 5.2 Advisor permanece em Sonnet T3 sem prova kernel-owned (recibo arbitrario nao autoriza T4)
 $selAdvNormal = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'medium' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-V11 ($selAdvNormal.Tier -eq 'T3' -and $selAdvNormal.selected_model_id -eq 'claude-agent/sonnet') "Advisor normal utiliza Sonnet T3"
+Assert-V11 ($selAdvNormal.Tier -eq 'T3' -and $selAdvNormal.selected_model_id -eq 'openai/gpt-6.1-terra') "Advisor normal utiliza Terra T3"
 
 $selAdvDeadlockAuth = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:advisor-v11' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-Assert-V11 ($selAdvDeadlockAuth.Tier -eq 'T3' -and $selAdvDeadlockAuth.selected_model_id -eq 'claude-agent/sonnet') "Advisor em deadlock com recibo arbitrario permanece em Sonnet (exige prova kernel-owned)"
+Assert-V11 ($selAdvDeadlockAuth.Tier -eq 'T3' -and $selAdvDeadlockAuth.selected_model_id -eq 'openai/gpt-6.1-terra') "Advisor em deadlock com recibo arbitrario permanece em Terra (exige prova kernel-owned)"
 
 # 5.3 Astra excepcional: requer autorizacao de orcamento excepcional
 $catAstra = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } }

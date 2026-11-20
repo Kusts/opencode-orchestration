@@ -28,7 +28,7 @@ function Assert-HP([bool]$Condition, [string]$Name) {
 
 $p = Get-OrchestrationModelRoutingPolicy -ForceReload $true
 Assert-HP ($p.Status -eq 'POLICY_LOADED') 'hp-policy-loads'
-Assert-HP ($p.PolicyVersion -eq '1.6.0') 'hp-policy-stays-v1.5'
+Assert-HP ($p.PolicyVersion -eq '1.6.1') 'hp-policy-v1.6.1'
 $pol = $p.Policy
 
 # 1. Provider registration (single catalog).
@@ -105,7 +105,7 @@ Assert-HP ([string]$pol.models.deepseek_go.availability_status -eq 'active' -and
 $advRoles = @($pol.models.claude_haiku.eligible_roles)
 Assert-HP ($advRoles -notcontains 'engineering-advisor') 'hp-haiku-advisor-ineligible'
 $sAdv = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true -NativeModelOverrideProven $true
-Assert-HP ($sAdv.Tier -eq 'T3' -and $sAdv.CatalogModel -eq 'claude-agent/sonnet') 'hp-advisor-starts-sonnet-T3'
+Assert-HP ($sAdv.Tier -eq 'T3' -and $sAdv.CatalogModel -eq 'openai/gpt-6.1-terra') 'hp-advisor-starts-terra-T3'
 
 # 8. T3 Sonnet->Terra candidate; T4 Opus->Sol candidate; both HOLD absent safe no-start.
 $sT3 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -IgnoreUserConfig $true -NativeModelOverrideProven $true

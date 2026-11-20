@@ -36,19 +36,19 @@ function Read-JsoncFile([string]$Path) {
 }
 
 $policy = Get-Content -LiteralPath (Join-Path $repo 'source\registry\model-routing-policy.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-Assert-PMC ([string]$policy.policy_version -ceq '1.6.0') 'pmc-policy-version-1.6.0'
+Assert-PMC ([string]$policy.policy_version -ceq '1.6.1') 'pmc-policy-version-1.6.1'
 $planner = $policy.planner
 Assert-PMC ([string]$planner.primary -ceq 'hy4' -and [string]$planner.model_id -ceq 'opencode-go/hy4-flash-free' -and [string]$planner.provider -ceq 'opencode-go' -and [string]$planner.tier -ceq 'T1') 'pmc-policy-planner-primary-hy4-t1'
 Assert-PMC (([string]$planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and ([string]$planner.fallback -ceq 'luna') -and (-not [bool]$planner.fallback_requires_capability_proof)) 'pmc-planner-T2-Luna-availability-fallback-with-independent-no-start-proof'
 Assert-PMC ([string]$policy.role_profiles.build.default_model -ceq 'hy4' -and (@($policy.role_profiles.build.admissible_tiers) -contains 'T1')) 'pmc-build-role-hy4-t1'
 Assert-PMC (@($policy.models.claude_haiku.eligible_roles) -notcontains 'build') 'pmc-haiku-not-admissible-for-planner-build'
-Assert-PMC ([string]$policy.role_profiles.'engineering-advisor'.default_model -ceq 'claude_sonnet' -and [string]$policy.role_profiles.'engineering-advisor'.default_tier -ceq 'T3') 'pmc-advisor-sonnet-t3'
+Assert-PMC ([string]$policy.role_profiles.'engineering-advisor'.default_model -ceq 'terra' -and [string]$policy.role_profiles.'engineering-advisor'.default_tier -ceq 'T3') 'pmc-advisor-terra-t3'
 Assert-PMC ([string]$policy.role_profiles.tester.default_model -ceq 'hy4' -and [string]$policy.role_profiles.tester.default_tier -ceq 'T1' -and [string]$policy.role_profiles.tester.deterministic_tier -ceq 'T0') 'pmc-tester-T0-deterministic-T1-LLM'
 
 Assert-PMC (([string]$policy.tiers.T1.primary -ceq 'hy4') -and ([string]$policy.tiers.T1.alternatives[0] -ceq 'mimo')) 'pmc-T1-hy4-mimo-order'
 Assert-PMC (([string]$policy.tiers.T2.primary -ceq 'luna') -and ([string]$policy.tiers.T2.alternatives[0] -ceq 'deepseek_go') -and ([string]$policy.tiers.T2.alternatives[1] -ceq 'muse') -and ([string]$policy.tiers.T2.alternatives[2] -ceq 'claude_haiku')) 'pmc-T2-luna-deepseek_go-muse-haiku-order'
-Assert-PMC (([string]$policy.tiers.T3.primary -ceq 'claude_sonnet') -and ([string]$policy.tiers.T3.fallback -ceq 'terra')) 'pmc-T3-sonnet-terra-order'
-Assert-PMC (([string]$policy.tiers.T4.primary -ceq 'claude_opus') -and ([string]$policy.tiers.T4.fallback -ceq 'sol') -and (@($policy.tiers.T4.alternatives) -notcontains 'muse') -and (@($policy.tiers.T4.alternatives) -notcontains 'deepseek_go')) 'pmc-T4-opus-sol-same-tier-only-T2-recovery-described-separately'
+Assert-PMC (([string]$policy.tiers.T3.primary -ceq 'terra') -and ([string]$policy.tiers.T3.fallback -ceq 'claude_sonnet')) 'pmc-T3-terra-sonnet-order'
+Assert-PMC (([string]$policy.tiers.T4.primary -ceq 'sol') -and ([string]$policy.tiers.T4.fallback -ceq 'claude_opus') -and (@($policy.tiers.T4.alternatives) -notcontains 'muse') -and (@($policy.tiers.T4.alternatives) -notcontains 'deepseek_go')) 'pmc-T4-sol-opus-same-tier-only-T2-recovery-described-separately'
 Assert-PMC (([string]$policy.tiers.T4.description -match 'DeepSeek') -and ([string]$policy.tiers.T4.description -match 'Muse') -and ([string]$policy.tiers.T4.description -match 'audit-only')) 'pmc-T4-description-documents-audit-only-T2-recovery'
 foreach ($alias in @('claude_haiku','claude_sonnet','claude_opus','claude_fable')) {
     Assert-PMC ([string]$policy.models.$alias.resolution_status -ceq 'runtime-unverified') ("pmc-$alias-concrete-version-unverified")
@@ -61,7 +61,7 @@ Assert-PMC ((-not [bool]$policy.models.deepseek.enabled) -and ([string]$policy.m
 $example = Read-JsoncFile (Join-Path $repo 'models.example.jsonc')
 Assert-PMC ([string]$example.planner -ceq 'opencode-go/hy4-flash-free') 'pmc-example-planner-hy4'
 Assert-PMC ([string]$example.cheap -ceq 'openai/gpt-6-luna') 'pmc-example-cheap-luna'
-Assert-PMC ([string]$example.strong -ceq 'claude-agent/sonnet' -and [string]$example.frontier -ceq 'claude-agent/opus') 'pmc-example-strong-sonnet-frontier-opus'
+Assert-PMC ([string]$example.strong -ceq 'openai/gpt-6.1-terra' -and [string]$example.frontier -ceq 'openai/gpt-6.1-sol') 'pmc-example-strong-terra-frontier-sol'
 $advisorFrontmatter = [IO.File]::ReadAllText((Join-Path $repo 'source\agents\engineering-advisor.md'), [Text.Encoding]::UTF8)
 $researcherFrontmatter = [IO.File]::ReadAllText((Join-Path $repo 'source\agents\researcher.md'), [Text.Encoding]::UTF8)
 $testerFrontmatter = [IO.File]::ReadAllText((Join-Path $repo 'source\agents\tester.md'), [Text.Encoding]::UTF8)
@@ -97,7 +97,7 @@ if (Test-Path -LiteralPath $localModels -PathType Leaf) {
     $local = Read-JsoncFile $localModels
     Assert-PMC (-not [string]::IsNullOrWhiteSpace([string]$local.planner)) 'pmc-local-models-planner-user-override-preserved'
     Assert-PMC ([string]$local.cheap -ceq 'openai/gpt-6-luna') 'pmc-local-models-cheap-luna'
-    Assert-PMC ([string]$local.strong -ceq 'claude-agent/sonnet' -and [string]$local.frontier -ceq 'claude-agent/opus') 'pmc-local-models-strong-sonnet-frontier-opus'
+    Assert-PMC ([string]$local.strong -ceq 'openai/gpt-6.1-terra' -and [string]$local.frontier -ceq 'openai/gpt-6.1-sol') 'pmc-local-models-strong-terra-frontier-sol'
 } else {
     Write-Host '[SKIP] pmc-local-models-planner-haiku (models.jsonc absent; git-ignored)'
 }
@@ -130,7 +130,7 @@ foreach ($tmpl in @('opencode.v2.json.tmpl', 'opencode.v1.json.tmpl')) {
     Assert-PMC ([string]$blocks.explorer.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-explorer-starts-T1")
     Assert-PMC ([string]$blocks.tester.model -ceq 'opencode-go/hy4-flash-free') ("pmc-$tag-tester-LLM-default-T1")
     if ($null -ne $blocks.PSObject.Properties['engineering-advisor']) {
-        Assert-PMC ([string]$blocks.'engineering-advisor'.model -ceq 'claude-agent/sonnet') ("pmc-$tag-advisor-sonnet-T3")
+        Assert-PMC ([string]$blocks.'engineering-advisor'.model -ceq 'openai/gpt-6.1-terra') ("pmc-$tag-advisor-terra-T3")
     }
     $leak = @()
     foreach ($p in $blocks.PSObject.Properties) {

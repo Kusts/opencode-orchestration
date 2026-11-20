@@ -65,7 +65,7 @@ Assert-Router ($selRevLow.ModelToken -eq 'MODEL_CHEAP') "A.4: Reviewer T2 usa MO
 
 $selRevMed = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'medium' -Complexity 'medium' -IgnoreUserConfig $true
 Assert-Router ($selRevMed.Tier -eq 'T3') "A.4: Reviewer medium seleciona T3"
-Assert-Router ($selRevMed.CatalogModel -eq 'claude-agent/sonnet') "A.4: Reviewer T3 canonico e Sonnet"
+Assert-Router ($selRevMed.CatalogModel -eq 'openai/gpt-6.1-terra') "A.4: Reviewer T3 canonico e Sonnet"
 Assert-Router ($selRevMed.ModelToken -eq 'MODEL_STRONG') "A.4: Reviewer T3 usa MODEL_STRONG"
 
 # Sem autorizacao de custo explicita, high-risk faz fallback para T3 (T4 nao e autorizado so por risco)
@@ -76,13 +76,13 @@ Assert-Router ($selRevHighUnauth.ModelToken -eq 'MODEL_STRONG') "A.4: Reviewer d
 # Recibo arbitrario sem TaskId/prova kernel-owned nao autoriza T4 (fail-closed em T3).
 $selRevHighAuth = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -Complexity 'complex' -T3FailureVerified $true -T3FailureReceipt 'verified:review' -IgnoreUserConfig $true
 Assert-Router ($selRevHighAuth.Tier -eq 'T3') "A.4: Reviewer high-risk com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
-Assert-Router ($selRevHighAuth.CatalogModel -eq 'claude-agent/sonnet') "A.4: Reviewer T3 canonico e Sonnet"
+Assert-Router ($selRevHighAuth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.4: Reviewer T3 canonico e Sonnet"
 Assert-Router ($selRevHighAuth.ModelToken -eq 'MODEL_STRONG') "A.4: Reviewer T3 usa token distinto MODEL_STRONG"
 
 # A.5 Security-Reviewer: Invariantes estritas de seguranca (proibido T0/T1/T2)
 $selSecLow = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'low' -Complexity 'trivial' -IgnoreUserConfig $true
 Assert-Router ($selSecLow.Tier -eq 'T3') "A.5: Security-reviewer nunca usa T1/T2 mesmo em low-risk"
-Assert-Router ($selSecLow.CatalogModel -eq 'claude-agent/sonnet') "A.5: Security-reviewer low seleciona Sonnet T3"
+Assert-Router ($selSecLow.CatalogModel -eq 'openai/gpt-6.1-terra') "A.5: Security-reviewer low seleciona Sonnet T3"
 Assert-Router ($selSecLow.ModelToken -eq 'MODEL_STRONG') "A.5: Security-reviewer usa MODEL_STRONG"
 
 $selSecCritUnauth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -Complexity 'complex' -IgnoreUserConfig $true
@@ -90,7 +90,7 @@ Assert-Router ($selSecCritUnauth.Tier -eq 'T3') "A.5: Security-reviewer critical
 
 $selSecCritAuth = Resolve-OrchestrationModelSelection -AgentName 'security-reviewer' -Risk 'critical' -Complexity 'complex' -T3FailureVerified $true -T3FailureReceipt 'verified:security' -IgnoreUserConfig $true
 Assert-Router ($selSecCritAuth.Tier -eq 'T3') "A.5: Security-reviewer critical com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
-Assert-Router ($selSecCritAuth.CatalogModel -eq 'claude-agent/sonnet') "A.5: Security-reviewer T3 canonico e Sonnet"
+Assert-Router ($selSecCritAuth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.5: Security-reviewer T3 canonico e Sonnet"
 Assert-Router ($selSecCritAuth.ModelToken -eq 'MODEL_STRONG') "A.5: Security-reviewer T3 usa token distinto MODEL_STRONG"
 
 # A.6 Coder: Escalonamento dinamico e custo
@@ -101,7 +101,7 @@ Assert-Router ($selCoderDef.ModelToken -eq 'MODEL_CHEAP') "A.6: Coder default us
 
 $selCoderRetry = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0 -IgnoreUserConfig $true
 Assert-Router ($selCoderRetry.Tier -eq 'T3') "A.6: Coder complex seleciona T3"
-Assert-Router ($selCoderRetry.CatalogModel -eq 'claude-agent/sonnet') "A.6: Coder complex canonico seleciona Sonnet"
+Assert-Router ($selCoderRetry.CatalogModel -eq 'openai/gpt-6.1-terra') "A.6: Coder complex canonico seleciona Sonnet"
 
 $selCoderNoT4 = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 0 -IgnoreUserConfig $true
 Assert-Router ($selCoderNoT4.Tier -ne 'T4') "A.6: Coder sem falha anterior nao pode receber T4"
@@ -111,13 +111,13 @@ Assert-Router ($selCoderT4Unauth.Tier -eq 'T2' -and $selCoderT4Unauth.CatalogMod
 
 $selCoderT4Auth = Resolve-OrchestrationModelSelection -AgentName 'coder' -Complexity 'complex' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:coder' -IgnoreUserConfig $true
 Assert-Router ($selCoderT4Auth.Tier -eq 'T3') "A.6: Complexity complex seleciona T3; recibo arbitrario nao e requisito nem autoridade"
-Assert-Router ($selCoderT4Auth.CatalogModel -eq 'claude-agent/sonnet') "A.6: Coder T3 canonico e Sonnet"
+Assert-Router ($selCoderT4Auth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.6: Coder T3 canonico e Sonnet"
 Assert-Router ($selCoderT4Auth.ModelToken -eq 'MODEL_STRONG') "A.6: Coder T3 usa token distinto MODEL_STRONG"
 
 # A.7 Engineering Advisor: sempre T3 Sonnet, Terra fallback, T3 minimum.
 $selAdvLow = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -IgnoreUserConfig $true
 Assert-Router ($selAdvLow.Tier -eq 'T3') "A.7: Advisor simples/low sempre seleciona T3 (decisao explicita, sem T2)"
-Assert-Router ($selAdvLow.CatalogModel -eq 'claude-agent/sonnet') "A.7: Advisor simples/low canonico e Sonnet"
+Assert-Router ($selAdvLow.CatalogModel -eq 'openai/gpt-6.1-terra') "A.7: Advisor simples/low canonico e Sonnet"
 Assert-Router ($selAdvLow.ModelToken -eq 'MODEL_STRONG') "A.7: Advisor simples/low usa token distinto MODEL_STRONG"
 
 $selAdvLowFc = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Risk 'low' -Complexity 'simple' -FailureCount 5 -IgnoreUserConfig $true
@@ -134,7 +134,7 @@ Assert-Router ($selAdvDeadlockUnauth.Tier -eq 'T3') "A.7: Advisor em deadlock se
 
 $selAdvDeadlockAuth = Resolve-OrchestrationModelSelection -AgentName 'engineering-advisor' -Complexity 'complex' -FailureCount 2 -T3FailureVerified $true -T3FailureReceipt 'verified:advisor' -IgnoreUserConfig $true
 Assert-Router ($selAdvDeadlockAuth.Tier -eq 'T3') "A.7: Advisor com recibo arbitrario permanece em T3 (exige prova kernel-owned)"
-Assert-Router ($selAdvDeadlockAuth.CatalogModel -eq 'claude-agent/sonnet') "A.7: Advisor T3 canonico e Sonnet"
+Assert-Router ($selAdvDeadlockAuth.CatalogModel -eq 'openai/gpt-6.1-terra') "A.7: Advisor T3 canonico e Sonnet"
 Assert-Router ($selAdvDeadlockAuth.ModelToken -eq 'MODEL_STRONG') "A.7: Advisor T3 usa token distinto MODEL_STRONG"
 
 # A.8 Explorer high/complex selection may use T2; default T1 is Hy4.
@@ -164,7 +164,7 @@ Assert-Router ($catT4Unauth.IsAuthorized -eq $true) "A.10: T4 nunca e autorizado
 
 $catT4Auth = Resolve-CatalogModel -Tier 'T4' -ProviderCostAuthorized $true -IgnoreUserConfig $true
 Assert-Router ($catT4Auth.IsAuthorized -eq $true) "A.10: T4 Opus e autorizado pela politica depois de prova T3"
-Assert-Router ($catT4Auth.CatalogModel -eq 'claude-agent/opus') "A.10: T4 default e Opus"
+Assert-Router ($catT4Auth.CatalogModel -eq 'openai/gpt-6.1-sol') "A.10: T4 default e Opus"
 
 # Invariante Astra: ProviderCostAuthorized ($true) NAO autoriza Astra!
 $catAstraWithGeneralCost = Resolve-CatalogModel -Tier 'T4' -Catalog @{ 'T4' = @{ Token = 'MODEL_FRONTIER'; CatalogModel = 'openai/gpt-6-astra'; Authorized = $false } } -ProviderCostAuthorized $true
@@ -207,7 +207,7 @@ Assert-Router ($null -ne $solExclusion -and $solExclusion.Reason -eq 'ALREADY_AT
 
 # 11.4 Invariante Anti-Downgrade para Reviewer (High Risk)
 $selRevHighCan = Resolve-OrchestrationModelSelection -AgentName 'reviewer' -Risk 'high' -NativeModelOverrideProven $true -IgnoreUserConfig $true
-$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRevHighCan -FailedModel 'claude-agent/sonnet' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra','claude-agent/opus','openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
+$fbRevDegrade = Resolve-OrchestrationModelFallback -RequestedSelection $selRevHighCan -FailedModel 'openai/gpt-6.1-terra' -AttemptedModels @('claude-agent/sonnet','openai/gpt-6.1-terra','claude-agent/opus','openai/gpt-6.1-sol','openai/gpt-6-astra') -TriggerReason 'RATE_LIMIT' -IgnoreUserConfig $true
 Assert-Router ($fbRevDegrade.Status -eq 'REJECTED_DOWNGRADE_FORBIDDEN') "A.11.4: Reviewer sob risco high proibe downgrade para T2 (sem modelos ficticios)"
 Assert-Router ($fbRevDegrade.IsDowngrade -eq $true) "A.11.4: Marcado como tentativa de downgrade proibido"
 Assert-Router ($fbRevDegrade.ReallyAttemptedModels.Count -eq 5) "A.11.4: ReallyAttemptedModels contem os cinco modelos realmente tentados"
@@ -266,8 +266,8 @@ $cleanExample = $rawExample -replace '(?m)^\s*//.*$', ''
 $parsedExample = ConvertFrom-Json -InputObject $cleanExample
 Assert-Router ($parsedExample.planner -eq 'opencode-go/hy4-flash-free') "B.1: models.example.jsonc default planner e Hy4 T1"
 Assert-Router ($parsedExample.cheap -eq 'openai/gpt-6-luna') "B.1: models.example.jsonc default cheap e Luna"
-Assert-Router ($parsedExample.strong -eq 'claude-agent/sonnet') "B.1: models.example.jsonc default strong e alias Sonnet T3"
-Assert-Router ($parsedExample.frontier -eq 'claude-agent/opus') "B.1: models.example.jsonc default frontier e alias Opus T4"
+Assert-Router ($parsedExample.strong -eq 'openai/gpt-6.1-terra') "B.1: models.example.jsonc default strong e alias Sonnet T3"
+Assert-Router ($parsedExample.frontier -eq 'openai/gpt-6.1-sol') "B.1: models.example.jsonc default frontier e alias Opus T4"
 
 # B.2 Suporte a overrides de usuario via catalogo customizado simulado
 $customConfig = @{

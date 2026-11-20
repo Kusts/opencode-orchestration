@@ -9,6 +9,13 @@
 
 - Routing: `hy4` (OpenCode Go) passa a ser o primário T1 e do Planner `build` (policy 1.5.0 → 1.6.0); MiMo é fallback T1 e Luna permanece candidata de disponibilidade do Planner somente com prova independente de não-início. Sem promoção por exaustão de transporte.
 
+- **Documentação (M4):** novo `docs/HYBRID-ORCHESTRATION.md` descreve a integração
+  híbrida Claude/Orca/OpenCode e a migração T3/T4 → Terra/Sol (policy 1.6.1),
+  incluindo confirmação P0, recuperação pelo Orca, homologação delimitada,
+  limitações e rollback. Instruções permanentes permanecem apenas em
+  `~/.claude/CLAUDE.md` e na skill `~/.claude/skills/hybrid-orchestration/SKILL.md`.
+  Config viva não reconciliada; commit não feito.
+
 Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
