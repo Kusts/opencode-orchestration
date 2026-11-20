@@ -150,6 +150,35 @@ try {
   $hcText = [IO.File]::ReadAllText((Join-Path $hc 'CLAUDE.md'), [Text.Encoding]::UTF8)
   Assert ((-not $hcText.Contains($Start)) -and (-not $hcText.Contains($End))) 'P0-02: bloco Claude removido'
   Assert ((-not (Test-Path (Join-Path $hc 'skills\hybrid-orchestration'))) -and (-not (Test-Path (Join-Path $hc '.opencode-orchestration-claude.json')))) 'P0-02: skill e manifest Claude removidos'
+
+  # --- 9. P1-04: install.ps1 -ClaudeHybrid ponta a ponta em homes temporarios ---
+  $inst = Join-Path $RepoRoot 'install.ps1'
+  $oc9 = Join-Path $root 'p104-oc'
+  $ch9 = Join-Path $root 'p104-claude'
+  New-Item -ItemType Directory -Path $oc9 -Force | Out-Null
+  New-Item -ItemType Directory -Path $ch9 -Force | Out-Null
+  $r = & $engine -NoProfile -File $inst -ClaudeHybrid -TargetHome $oc9 -ClaudeHome $ch9 -WhatIf 2>&1
+  $code9 = $LASTEXITCODE
+  Assert ($code9 -eq 0) 'P1-04.1: install.ps1 -ClaudeHybrid -WhatIf exit 0'
+  Assert (-not (Test-Path -LiteralPath (Join-Path $ch9 'CLAUDE.md'))) 'P1-04.1: WhatIf nao escreve CLAUDE.md'
+  $r = & $engine -NoProfile -File $inst -ClaudeHybrid -TargetHome $oc9 -ClaudeHome $ch9 2>&1
+  $code9 = $LASTEXITCODE
+  Assert ($code9 -eq 0) 'P1-04.2: install.ps1 -ClaudeHybrid aplica exit 0'
+  Assert ((Test-Path -LiteralPath (Join-Path $ch9 'skills\hybrid-orchestration\SKILL.md')) -and (Test-Path -LiteralPath (Join-Path $oc9 '.opencode-orchestration\manifest.json'))) 'P1-04.2: OpenCode + Claude instalados'
+  $skill9 = [IO.File]::ReadAllText((Join-Path $ch9 'skills\hybrid-orchestration\SKILL.md'), [Text.Encoding]::UTF8)
+  Assert (($skill9 -match '(?m)^name:\s*hybrid-orchestration\s*$') -and ($skill9 -match '(?m)^description:')) 'P1-04.3: SKILL.md com frontmatter name/description valido'
+  $scratch9 = Join-Path $root 'p104-scratch'
+  New-Item -ItemType Directory -Path (Join-Path $scratch9 'source') -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'source\claude') -Destination (Join-Path $scratch9 'source\claude') -Recurse -Force
+  [IO.File]::AppendAllText((Join-Path $scratch9 'source\claude\skills\hybrid-orchestration\SKILL.md'), "`n<!-- CERT-UPDATE-MARKER -->", $Utf8)
+  $r = & $engine -NoProfile -File $Script -RepoRoot $scratch9 -ClaudeHome $ch9 2>&1
+  $code9 = $LASTEXITCODE
+  $text9 = ($r -join "`n")
+  Assert (($code9 -eq 0) -and ($text9 -match '\[UPDATE\] skills/hybrid-orchestration/SKILL.md')) 'P1-04.4: fonte alterada gera UPDATE'
+  $skill9b = [IO.File]::ReadAllText((Join-Path $ch9 'skills\hybrid-orchestration\SKILL.md'), [Text.Encoding]::UTF8)
+  Assert ($skill9b.Contains('CERT-UPDATE-MARKER')) 'P1-04.4: conteudo atualizado copiado'
+  $r = Run-Uninstaller $oc9 $ch9
+  Assert (($r.code -eq 0) -and (-not (Test-Path -LiteralPath (Join-Path $ch9 'skills\hybrid-orchestration')))) 'P1-04.5: uninstall -ClaudeHybrid remove skill'
 }
 finally {
   if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }

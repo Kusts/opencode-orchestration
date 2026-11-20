@@ -33,12 +33,46 @@ O repositório é a fonte canônica; nada é copiado à mão para `~/.claude`:
   (`dispatch-confirmation.md`, `opencode-contract.md`, `resume.md`).
 
 Instalação opt-in, preservando o que já existe (backup em
-`<ClaudeHome>/backups/opencode-orchestration-claude/<ts>/`, manifest com SHA256):
+`<ClaudeHome>/backups/opencode-orchestration-claude/<ts>/`, manifest com SHA256).
+
+### Fluxo real e guardrail de destino
+
+`install.ps1 -ClaudeHybrid` dot-source `scripts/runtime/lib/OrchestrationTargetGuard.ps1`
+e aplica o guardrail **somente a `-TargetHome`** (destino OpenCode). O `-ClaudeHome`
+é apenas repassado ao instalador Claude e **não** passa por esse guardrail.
+Comportamento observado na certificação P1-04 (2026-11-20):
+
+- `install.ps1 -ClaudeHybrid` com `-TargetHome` omitido (padrão = `USERPROFILE`)
+  falha antes de qualquer escrita com `MUTATING_TARGET_REQUIRES_EXPLICIT_PATH`.
+  Para o perfil real são exigidos `-AllowUserProfileTarget` **e autorização explícita**.
+- `uninstall.ps1 -ClaudeHybrid` retorna antes do guardrail (linhas 38-45 do script)
+  e usa `~/.claude` como destino padrão, sem opt-in: é uma remoção não guardada.
+  Sempre informe `-ClaudeHome` explicitamente; apontar ao perfil real requer
+  autorização explícita.
+
+Os comandos abaixo foram **executados contra HOME temporário** na certificação
+P1-04 (evidência em `evidence/v3.1/claude-hybrid/certification-2026-11-20.json`).
+Substitua `<repo>` pela raiz do checkout e `<tmp>` por uma pasta nova em `%TEMP%`:
 
 ```powershell
-.\install.ps1 -ClaudeHybrid -WhatIf   # plano (CREATE/UPDATE/ADOPT/CONFLICT)
-.\install.ps1 -ClaudeHybrid           # aplica; sem o switch o OpenCode segue standalone
-.\uninstall.ps1 -ClaudeHybrid         # rollback SOMENTE da integração Claude (Claude-only)
+# Caminho Claude-only (instala/atualiza/desinstala apenas a integração Claude)
+pwsh -NoProfile -File scripts\claude\install-claude-hybrid.ps1 -RepoRoot <repo> -ClaudeHome <tmp>\claude -WhatIf
+pwsh -NoProfile -File scripts\claude\install-claude-hybrid.ps1 -RepoRoot <repo> -ClaudeHome <tmp>\claude
+pwsh -NoProfile -File scripts\claude\install-claude-hybrid.ps1 -RepoRoot <repo> -ClaudeHome <tmp>\claude -Uninstall
+
+# Integração completa (OpenCode + Claude) — exige TargetHome temporário
+pwsh -NoProfile -File .\install.ps1 -ClaudeHybrid -TargetHome <tmp>\oc-home -ClaudeHome <tmp>\claude -WhatIf
+pwsh -NoProfile -File .\install.ps1 -ClaudeHybrid -TargetHome <tmp>\oc-home -ClaudeHome <tmp>\claude
+
+# Rollback Claude-only documentado
+pwsh -NoProfile -File .\uninstall.ps1 -ClaudeHybrid -ClaudeHome <tmp>\claude
+```
+
+**Requer autorização para perfil real — NÃO executado nesta frente:**
+
+```powershell
+pwsh -NoProfile -File .\install.ps1 -ClaudeHybrid -AllowUserProfileTarget  # guardrail do TargetHome; ClaudeHome continua sem guardrail
+pwsh -NoProfile -File .\uninstall.ps1 -ClaudeHybrid                        # SEM guardrail: destino padrão ~/.claude; use -ClaudeHome explícito
 ```
 
 `uninstall.ps1 -ClaudeHybrid` é Claude-only: delega em
@@ -46,7 +80,8 @@ Instalação opt-in, preservando o que já existe (backup em
 OpenCode (agentes, plugins, skills, `AGENTS.md`, `opencode.json`/`opencode.jsonc`
 ou manifest). Para remover o pacote inteiro, use fluxos distintos e explícitos:
 `.\uninstall.ps1` (desinstalação OpenCode padrão) e, separadamente,
-`.\uninstall.ps1 -ClaudeHybrid` (integração Claude).
+`.\uninstall.ps1 -ClaudeHybrid` (integração Claude). Esses fluxos padrão
+(remoção completa do pacote) não foram executados nesta frente de certificação.
 
 Seção legada sem marcadores é adotada (sem duplicar). O bloco marcado e os arquivos
 de skill editados pelo usuário viram `CONFLICT` e são preservados tanto na
@@ -109,6 +144,29 @@ O coordenador (Claude) é responsável pelo fecho ao longo e ao fim da missão:
 Ver `evidence/v3.1/claude-hybrid/homologation-2026-11-19.json` (ambiente
 descartável; cenários simulados identificados como tal).
 
+## Certificação P1-04 / P1-05 (2026-11-20)
+
+Evidência: `evidence/v3.1/claude-hybrid/certification-2026-11-20.json`.
+
+- **P1-04 — `candidate_pass`; `TESTED_IN_ISOLATION=PASS`;
+  `ACTIVE_PROFILE_VERIFIED=NOT_VERIFIED`.** Instalar → atualizar (fonte alterada
+  em cópia scratch) → desinstalar foi executado contra ClaudeHome temporário; a
+  preservação de personalizações já é coberta por P0-01 e não foi reimplementada.
+  Todos os comandos documentados acima foram executados contra HOME temporário,
+  exceto os dois marcados como "requer autorização para perfil real". O skill
+  `hybrid-orchestration` tem frontmatter válido (`name`/`description`) e é
+  descoberto/carregado pelo Claude Code quando `CLAUDE_CONFIG_DIR` aponta ao
+  diretório temporário (debug do runtime: `Loaded 1 unique skills … user: 1`).
+  O turno headless real (`claude -p`) fica em `HOLD_NOT_VERIFIED`: sem credencial
+  no ambiente isolado o CLI responde `Not logged in · Please run /login`; as
+  credenciais do perfil real não foram usadas nem copiadas. Nenhum perfil real
+  foi tocado.
+- **P1-05 — `blocked` / `HOLD`.** Não há coordenador Claude headless iniciável
+  de forma controlada sem credencial no ambiente isolado, e usar credencial real
+  violaria o isolamento e poderia gerar efeito externo. Sem sessão para
+  interromper, o cenário não foi forçado: nenhum worker OpenCode, worktree,
+  branch ou infraestrutura foi criado para P1-05.
+
 ## Configuração T3/T4 (policy 1.6.1)
 
 Mapeamento da policy 1.6.1 (fonte canônica:
@@ -164,6 +222,9 @@ efeito.
   worker rodando e retomar) depende do operador; **E** (eficiência híbrido vs
   OpenCode direto) sem medição conclusiva — não alegar ganho; `reconcile` da
   config viva pendente de autorização; commit não feito.
+- **P1-04/P1-05 (2026-11-20):** ver secção "Certificação P1-04 / P1-05"; suíte
+  `claude-hybrid.tests.ps1` 46/46 em PS7 e PS5.1, `test-package-consistency`
+  17/17, `git diff --check` limpo.
 
 ## Limitações
 
@@ -171,19 +232,28 @@ efeito.
   validam o procedimento, não a taxa de falha em produção.
 - Astra não foi executado em runtime; apenas coberto por testes do kernel.
 - O cenário D depende de interrupção/retomada pelo operador; não homologado
-  aqui.
+  aqui. P1-05 tentou formalizá-lo e registrou `HOLD` por falta de coordenador
+  headless autenticável em isolamento.
+- A invocação do skill por um turno real do modelo (`claude -p`) não foi provada
+  no isolamento (`HOLD_NOT_VERIFIED`); apenas descoberta/carga pelo runtime e
+  frontmatter válido foram comprovados.
+- `uninstall.ps1 -ClaudeHybrid` não passa pelo guardrail de destino e mira
+  `~/.claude` por padrão; exige `-ClaudeHome` explícito e autorização para perfil
+  real (comportamento do chamador, fora do escopo de código desta frente).
 - Não há medição conclusiva de eficiência (cenário E): nenhum ganho é alegado.
 - A configuração viva não foi reconciliada; o `models.jsonc` local é fora do
   controle de versão e sua conformidade precisa ser verificada no ambiente.
 
 ## Rollback
 
-Esta frente só produz documentação. Para reverter:
+Esta frente produz documentação, um JSON de evidência e 9 asserts de teste;
+nenhuma configuração viva foi alterada. Para reverter:
 
-1. Remover `docs/HYBRID-ORCHESTRATION.md`.
-2. Reverter as linhas adicionadas em `CHANGELOG.md` sob `[Unreleased]`.
-3. Não há configuração viva alterada a restaurar. Não executar `reconcile`
+1. Reverter `docs/HYBRID-ORCHESTRATION.md`.
+2. Remover `evidence/v3.1/claude-hybrid/certification-2026-11-20.json`.
+3. Reverter a seção 9 em `tests/distribution/claude-hybrid.tests.ps1`.
+4. Não há configuração viva alterada a restaurar. Não executar `reconcile`
    como forma de rollback.
 
-Nenhum commit, push, install ou reconciliação foi realizado; alterações
-preexistentes de outras frentes no worktree devem ser preservadas.
+Nenhum commit, push, install em perfil real ou reconciliação foi realizado;
+alterações preexistentes de outras frentes no worktree devem ser preservadas.
