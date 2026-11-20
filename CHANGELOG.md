@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **Correção do instalador híbrido (2026-11-20):** o bloco marcado em `CLAUDE.md` só é atualizado/removido quando confere com o `block_sha256` do manifest; divergência vira `CONFLICT` preservado (inclusive na desinstalação parcial, que mantém o manifest e o registro dos arquivos modificados). `uninstall.ps1 -ClaudeHybrid` passa a ser Claude-only e não toca a instalação OpenCode; a remoção completa do pacote segue pelo `uninstall.ps1` padrão. Testes estendidos em PS 5.1 e PS7.
+
 - **Modo híbrido nativo (2026-11-19):** `install.ps1 -ClaudeHybrid` /
   `uninstall.ps1 -ClaudeHybrid` instalam a partir de `source/claude/` o bloco
   marcado em `CLAUDE.md` e a skill `hybrid-orchestration` (+ referências do

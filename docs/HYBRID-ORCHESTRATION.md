@@ -38,12 +38,21 @@ Instalação opt-in, preservando o que já existe (backup em
 ```powershell
 .\install.ps1 -ClaudeHybrid -WhatIf   # plano (CREATE/UPDATE/ADOPT/CONFLICT)
 .\install.ps1 -ClaudeHybrid           # aplica; sem o switch o OpenCode segue standalone
-.\uninstall.ps1 -ClaudeHybrid         # rollback: remove só o gerenciado
+.\uninstall.ps1 -ClaudeHybrid         # rollback SOMENTE da integração Claude (Claude-only)
 ```
 
-Seção legada sem marcadores é adotada (sem duplicar); arquivo editado pelo usuário
-vira `CONFLICT` e é preservado. Não toca `settings.json`, hooks nem outras skills.
-Em divergência, o pedido atual do usuário prevalece.
+`uninstall.ps1 -ClaudeHybrid` é Claude-only: delega em
+`scripts\claude\install-claude-hybrid.ps1 -Uninstall` e **não** toca a instalação
+OpenCode (agentes, plugins, skills, `AGENTS.md`, `opencode.json`/`opencode.jsonc`
+ou manifest). Para remover o pacote inteiro, use fluxos distintos e explícitos:
+`.\uninstall.ps1` (desinstalação OpenCode padrão) e, separadamente,
+`.\uninstall.ps1 -ClaudeHybrid` (integração Claude).
+
+Seção legada sem marcadores é adotada (sem duplicar). O bloco marcado e os arquivos
+de skill editados pelo usuário viram `CONFLICT` e são preservados tanto na
+atualização quanto na desinstalação; a desinstalação parcial mantém o manifest
+para não perder o registro desses conflitos. Não toca `settings.json`, hooks nem
+outras skills. Em divergência, o pedido atual do usuário prevalece.
 
 ## Integração Orca
 

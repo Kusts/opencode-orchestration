@@ -30,6 +30,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Claude-only explicito: -ClaudeHybrid NUNCA dispara a desinstalacao OpenCode.
+# Repassa ao desinstalador Claude e encerra antes de qualquer logica de
+# agentes, config, skills, plugin ou manifest do OpenCode. A remocao do pacote
+# inteiro continua sendo o fluxo padrao (sem o switch), documentado em
+# docs/HYBRID-ORCHESTRATION.md.
+if ($ClaudeHybrid) {
+  $chScript = Join-Path $PSScriptRoot 'scripts\claude\install-claude-hybrid.ps1'
+  $chArgs = @{ RepoRoot = $PSScriptRoot; Uninstall = $true }
+  if (-not [string]::IsNullOrWhiteSpace($ClaudeHome)) { $chArgs.ClaudeHome = $ClaudeHome }
+  if ($WhatIfPreference) { $chArgs.WhatIf = $true }
+  & $chScript @chArgs
+  exit $LASTEXITCODE
+}
+
 if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE }
 $TargetGuardLib = Join-Path $PSScriptRoot 'scripts\runtime\lib\OrchestrationTargetGuard.ps1'
 . $TargetGuardLib
@@ -808,11 +822,4 @@ Write-Host ''
 Write-Host 'Uninstall concluido.' -ForegroundColor Green
 foreach ($l in $plan) { Write-Host ('  ' + $l) -ForegroundColor DarkGray }
 foreach ($w in $warnings) { Write-Host ('AVISO: ' + $w) -ForegroundColor Yellow }
-if ($ClaudeHybrid) {
-  $chScript = Join-Path $PSScriptRoot 'scripts\claude\install-claude-hybrid.ps1'
-  $chArgs = @{ RepoRoot = $PSScriptRoot; Uninstall = $true }
-  if (-not [string]::IsNullOrWhiteSpace($ClaudeHome)) { $chArgs.ClaudeHome = $ClaudeHome }
-  & $chScript @chArgs
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
 exit 0
