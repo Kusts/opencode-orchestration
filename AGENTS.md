@@ -98,6 +98,16 @@ com refs de critério; `verified_pass` é do verificador allowlisted
 sucesso de worker nunca é prova. Checagem de participação:
 `Test-OrchestrationDoneCompliance`.
 
+No encerramento da missão (modo híbrido), o coordenador é responsável por fechar os
+workers que criou — após aceitar a evidência, `orca orchestration worker-release --dispatch <id>`
+e confirmar com `worker-list` (`terminalState=released`, `liveness=exited`); só
+`--worktree current` fecha sozinho —, mesclar as PRs/branches da missão somente com CI
+verde completo, e limpar os worktrees/branches que a missão criou (`git worktree remove`
+sem `--force`, só se limpos e totalmente mesclados), preservando stashes e trabalho
+pré-existente ou de terceiros. Não liberar worker não-concluído nem mesclar com CI
+pendente/vermelho; detalhes em `source/claude/skills/hybrid-orchestration/SKILL.md` e
+`docs/HYBRID-ORCHESTRATION.md`.
+
 ## Segurança (quando material)
 
 - Nunca colocar segredo em Git, instruções, logs ou telemetria. Testes usam

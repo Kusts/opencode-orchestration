@@ -82,6 +82,28 @@ Dispatch sem execução observável; estado ambíguo após falha de comunicaçã
 `source/claude/skills/hybrid-orchestration/references/dispatch-confirmation.md`.
 Princípio: comprovadamente não iniciado ⇒ recupera; desconhecido ⇒ `HOLD`.
 
+## Encerramento da missão
+
+O coordenador (Claude) é responsável pelo fecho ao longo e ao fim da missão:
+
+1. **Fechar os workers que criou:** após aceitar a evidência de cada worker, rode
+   `orca orchestration worker-release --dispatch <id>` e confirme com `worker-list`
+   (`terminalState=released`, `liveness=exited`). Apenas workers iniciados com
+   `--worktree current` fecham sozinhos; os de `--worktree new-child`/`new-top-level`
+   ficam abertos por padrão (`worker-keep-open` só se o usuário for usar o chat). Não
+   liberar worker não-concluído; falha/estado ambíguo ⇒ `worker-stop`/reconciliação
+   conforme `source/claude/skills/hybrid-orchestration/references/resume.md`, sem
+   duplicar.
+2. **Merge:** mesclar as PRs/branches criadas pela missão somente com CI verde completo
+   e critérios de aceite comprovados — nunca com CI pendente/vermelho. `gh pr checks` é
+   pontual, sem laço de espera/polling.
+3. **Higiene:** após o merge, remover worktrees filhos (Orca ou `git worktree remove`
+   sem `--force`, só se limpos e totalmente mesclados) e branches locais/remotas
+   mescladas que a missão criou. Nunca apagar trabalho não mesclado, stashes ou
+   branches/worktrees pré-existentes ou de terceiros; relatar removidos e preservados
+   (com motivo) no relatório final. Ações irreversíveis fora do que a missão criou
+   exigem confirmação.
+
 ## Homologação A–G
 
 Ver `evidence/v3.1/claude-hybrid/homologation-2026-11-19.json` (ambiente

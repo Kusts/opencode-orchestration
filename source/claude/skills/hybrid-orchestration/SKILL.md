@@ -80,8 +80,25 @@ worker por `send` (com a evidência da falha). 2ª falha: nova hipótese ou outr
 subtarefa até o aceite ou até um bloqueio real (credencial, decisão humana, ação destrutiva).
 
 **CONCLUIR** — Só com todos os critérios comprovados. Relate por task: resultado,
-evidência, pendências. Workers concluídos fecham sozinhos; use `worker-keep-open` só se o
-usuário for usar o chat. Preserve evidências relevantes no repositório/registro existente.
+evidência, pendências. Preserve evidências relevantes no repositório/registro existente.
+Checklist de encerramento (responsabilidade do coordenador, ao longo e ao fim da missão):
+
+1. **Fechar os workers que criou:** após aceitar a evidência de cada worker, rode
+   `orca orchestration worker-release --dispatch <id>` e confirme com `worker-list`
+   (`terminalState=released`, `liveness=exited`). Somente workers iniciados com
+   `--worktree current` fecham sozinhos; os de `--worktree new-child`/`new-top-level`
+   ficam abertos por padrão. Use `worker-keep-open` só se o usuário for usar o chat.
+   Não libere worker não-concluído; falha/estado ambíguo ⇒ `worker-stop`/reconciliação
+   conforme `references/resume.md`, sem duplicar.
+2. **Merge:** faça o merge das PRs/branches criadas pela missão somente com CI verde
+   completo e critérios de aceite comprovados — nunca com CI pendente/vermelho.
+   `gh pr checks` é pontual, sem laço de espera/polling.
+3. **Higiene:** após o merge, remova worktrees filhos (Orca ou `git worktree remove`
+   sem `--force`, só se limpos e totalmente mesclados) e branches locais/remotas
+   mescladas que a missão criou. Nunca apague trabalho não mesclado, stashes, branches
+   ou worktrees pré-existentes/de terceiros. Relate o que foi removido e o que ficou
+   (e por quê) no relatório final. Ações irreversíveis fora do que a missão criou
+   exigem confirmação.
 
 ## 3. Retomada após interrupção
 
@@ -97,3 +114,6 @@ regras em `references/resume.md`. Worker vivo/`unverifiable` não autoriza rein�
 - Neste repo (`opencode-orchestration`), respeite o `AGENTS.md`: quem coordena não edita;
   escrita vai a worker com teste focado.
 - Segredos nunca em spec, log ou relatório.
+- Encerrar workers concluídos, mesclar e limpar worktrees/branches criados pela missão
+  é dever do coordenador no CONCLUIR: nunca liberar worker não-concluído, mesclar com
+  CI pendente/vermelho ou apagar trabalho pré-existente/de terceiros.
