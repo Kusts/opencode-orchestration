@@ -45,8 +45,10 @@ os findings em JSON para o Planner registrar com `-FindingsJson`.
 A decisão `retry-decision` é advisory: informe sinais de falha/localização com evidência atual; ela não autoriza dispatch, reparo ou mudança de autoridade. A decisão persistida é recomendação, não gate de conclusão.
 
 Equivalência Codex: `reviewer.toml` (`read-only`).
-Política de modelo: consulte `source/registry/model-routing-policy.json`. Escalonamento usa
-OpenAI: Sol/xhigh → Sol/max; Astra só em review crítico excepcional.
+Política de modelo (fonte única): `source/registry/model-routing-policy.json`.
+Configuração inicial: tier T3 (primário Terra). Escalada: tier T4 (Sol,
+`proof-gated`) e Astra apenas em review crítico excepcional, conforme o tier e
+o papel definidos na policy — IDs de modelo não são fonte independente.
 
 ## Shell
 O shell é irrestrito (`bash: "*": allow`). Respeite o escopo delegado e as instruções do Planner; `edit` permanece conforme o papel e `task: deny` impede criar subagentes. Permissão de shell não autoriza efeitos externos.

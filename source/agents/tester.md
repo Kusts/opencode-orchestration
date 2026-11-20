@@ -40,5 +40,7 @@ RECOMMENDATION, com comandos e evidências concisas.
 
 Equivalência Codex: `tester.toml` (`gpt-6-luna/medium`, `workspace-write`
 com restrição comportamental de não alterar a aplicação).
-Base atual: baseline T1 via OpenCode Go. Para validação complexa, escale
-somente a T2 conforme admissibilidade; T3/T4 permanecem proibidos.
+Política de modelo (fonte única): `source/registry/model-routing-policy.json`.
+Configuração inicial: tier T1. Para validação complexa, escale somente a T2
+conforme admissibilidade; T3/T4 permanecem proibidos. IDs de modelo não são
+fonte independente da policy.

@@ -2,11 +2,11 @@
 
 ## [Unreleased]
 
-- **Correção do instalador híbrido (2026-11-20):** o bloco marcado em `CLAUDE.md` só é atualizado/removido quando confere com o `block_sha256` do manifest; divergência vira `CONFLICT` preservado (inclusive na desinstalação parcial, que mantém o manifest e o registro dos arquivos modificados). `uninstall.ps1 -ClaudeHybrid` passa a ser Claude-only e não toca a instalação OpenCode; a remoção completa do pacote segue pelo `uninstall.ps1` padrão. Testes estendidos em PS 5.1 e PS7.
+- **Correção do instalador híbrido (#291, 2026-11-20):** o bloco marcado em `CLAUDE.md` só é atualizado/removido quando confere com o `block_sha256` do manifest; divergência vira `CONFLICT` preservado (inclusive na desinstalação parcial, que mantém o manifest e o registro dos arquivos modificados). `uninstall.ps1 -ClaudeHybrid` passa a ser Claude-only e não toca a instalação OpenCode; a remoção completa do pacote segue pelo `uninstall.ps1` padrão. Testes estendidos em PS 5.1 e PS7.
 
-- **Encerramento do orquestrador (2026-11-20):** o coordenador passa a ser explicitamente responsável por fechar os workers que criou (`worker-release --dispatch <id>` + confirmação no `worker-list`; só `--worktree current` fecha sozinho), mesclar as PRs/branches da missão somente com CI verde completo e fazer a higiene de worktrees/branches criados na orquestração, preservando stashes e trabalho pré-existente/de terceiros. Documentado na skill `hybrid-orchestration`, no bloco híbrido do `CLAUDE.md`, no `AGENTS.md` e em `docs/HYBRID-ORCHESTRATION.md`.
+- **Encerramento do orquestrador (#293, 2026-11-20):** o coordenador passa a ser explicitamente responsável por fechar os workers que criou (`worker-release --dispatch <id>` + confirmação no `worker-list`; só `--worktree current` fecha sozinho), mesclar as PRs/branches da missão somente com CI verde completo e fazer a higiene de worktrees/branches criados na orquestração, preservando stashes e trabalho pré-existente/de terceiros. Documentado na skill `hybrid-orchestration`, no bloco híbrido do `CLAUDE.md`, no `AGENTS.md` e em `docs/HYBRID-ORCHESTRATION.md`.
 
-- **Fonte única dos modelos (P1-03, issue #287):** `models.jsonc` passa a ser
+- **Fonte única dos modelos (#292, P1-03, issue #287):** `models.jsonc` passa a ser
   override explícito opcional — ausente ou com chaves ausentes/vazias não é erro;
   os valores canônicos vêm de `source/registry/model-routing-policy.json`
   (`install.ps1:Validate-Models` expõe `Source`/`OverrideKeys`). O modelo global
@@ -17,7 +17,18 @@
   comportamento atual. Alterar os quatro primários T1–T4 exige editar apenas a
   policy. Teste focado `tests/distribution/model-single-source.tests.ps1`
   (25 asserts, PS5.1+PS7): fixture temporária valida policy alterada e override
-  preservado, sem tocar no HOME/config reais. Sem commit.
+  preservado, sem tocar no HOME/config reais.
+
+- **Certificação isolada do modo híbrido (#295, P1-04/P1-05):** instalação,
+  atualização e desinstalação em HOME temporário; `TESTED_IN_ISOLATION=PASS`,
+  perfil real não verificado (`ACTIVE_PROFILE_VERIFIED=NOT_VERIFIED`). P1-05
+  segue HOLD: o turno headless exige login e as credenciais reais não foram
+  copiadas. Evidência: `evidence/v3.1/claude-hybrid/certification-2026-11-20.json`.
+
+- **Gate JEV com dono único (#296, em verificação/CI):** leitura única da flag
+  no PlannerLoop; comparativo local em
+  `evidence/v3.1/runtime-reliability/efficiency-comparison-2026-11-20.json`.
+  Conclusão causal de eficiência `NOT_MEASURED`/HOLD — exige A/B com runtime vivo.
 
 - **Modo híbrido nativo (2026-11-19):** `install.ps1 -ClaudeHybrid` /
   `uninstall.ps1 -ClaudeHybrid` instalam a partir de `source/claude/` o bloco
@@ -39,7 +50,7 @@
   incluindo confirmação P0, recuperação pelo Orca, homologação delimitada,
   limitações e rollback. Instruções permanentes permanecem apenas em
   `~/.claude/CLAUDE.md` e na skill `~/.claude/skills/hybrid-orchestration/SKILL.md`.
-  Config viva não reconciliada; commit não feito.
+  Config viva não reconciliada; integração mesclada via #289 (684290e).
 
 Todos os lançamentos relevantes deste pacote são documentados aqui, no
 formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
