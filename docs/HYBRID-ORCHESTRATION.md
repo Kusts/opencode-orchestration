@@ -180,9 +180,9 @@ Mapeamento da policy 1.6.1 (fonte canônica:
   execução em runtime até o momento.
 - **T1/T2 e Planner `build`:** inalterados por esta migração.
 
-Precedência efetiva de configuração: `models.jsonc` local **>** variáveis de
-ambiente **>** policy. O `models.jsonc` local é *gitignored* e precisa refletir
-Terra/Sol para que a seleção local não diverge da policy.
+A policy é a fonte única dos primários T1–T4; `models.jsonc` local é override
+**opcional** (ausente ou com chaves vazias não é erro — PR #292), não fonte
+independente de modelos. O arquivo é *gitignored*.
 
 A configuração viva em `~/.config/opencode` **não** foi alterada. Qualquer
 aplicação deve passar somente por
@@ -221,7 +221,8 @@ efeito.
 - **NÃO FEITO / com o operador:** **D** (interromper a sessão do Claude com
   worker rodando e retomar) depende do operador; **E** (eficiência híbrido vs
   OpenCode direto) sem medição conclusiva — não alegar ganho; `reconcile` da
-  config viva pendente de autorização; commit não feito.
+  config viva pendente de autorização. A integração foi mesclada via PR #289
+  (684290e).
 - **P1-04/P1-05 (2026-11-20):** ver secção "Certificação P1-04 / P1-05"; suíte
   `claude-hybrid.tests.ps1` 46/46 em PS7 e PS5.1, `test-package-consistency`
   17/17, `git diff --check` limpo.
@@ -255,5 +256,6 @@ nenhuma configuração viva foi alterada. Para reverter:
 4. Não há configuração viva alterada a restaurar. Não executar `reconcile`
    como forma de rollback.
 
-Nenhum commit, push, install em perfil real ou reconciliação foi realizado;
-alterações preexistentes de outras frentes no worktree devem ser preservadas.
+A certificação P1-04/P1-05 foi registrada e mesclada via PR #295 (69e3309);
+nenhum install em perfil real ou reconciliação foi realizado. Alterações
+preexistentes de outras frentes no worktree devem ser preservadas.

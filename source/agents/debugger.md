@@ -38,5 +38,7 @@ decide o escalonamento é o Planner.
 
 Equivalência Codex: `debugger.toml` (`read-only`,
 conforme papel consultivo e sem edição de aplicação).
-Política de modelo: consulte `source/registry/model-routing-policy.json`.
-Escalonamento: Sol/xhigh → Sol/max; Astra só como último recurso.
+Política de modelo (fonte única): `source/registry/model-routing-policy.json`.
+Configuração inicial: tier T3 (primário Terra). Escalada: tier T4 (Sol,
+`proof-gated`) e Astra só como último recurso, conforme o tier e o papel da
+policy — IDs de modelo não são fonte independente.

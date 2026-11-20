@@ -28,6 +28,7 @@ Retorne STATUS, CHANGES (arquivos e resumo), VALIDATION (comandos e resultados),
 RISKS e RECOMMENDATION, sem logs extensos.
 
 Equivalência Codex: `coder.toml` (`gpt-6-luna/medium`, `workspace-write`).
-Base atual: baseline cheap via OpenCode Go. Escalonamento usa OpenAI:
-Luna/high → Sol/medium → Sol/high; Astra só em exceção crítica (ver
-política do Planner).
+Política de modelo (fonte única): `source/registry/model-routing-policy.json`.
+Configuração inicial: tier T2 (pool cheap). Escalada para T3/T4 somente
+conforme admissibilidade do papel e gates da policy (T4 exige prova T3); Astra
+em exceção crítica. IDs de modelo não são fonte independente.

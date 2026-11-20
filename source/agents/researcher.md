@@ -30,8 +30,10 @@ riscos e RECOMMENDATION. Não copie documentação inteira nem despeje resultado
 brutos no contexto do Planner.
 
 Equivalência Codex: `researcher.toml` (`gpt-6-luna/medium`, `read-only`).
-Base atual: baseline cheap via OpenCode Go. Escalonamento usa OpenAI:
-hy4/high → Sol/medium → Sol/high só p/ síntese complexa; Astra nunca.
+Política de modelo (fonte única): `source/registry/model-routing-policy.json`.
+Configuração inicial: tier T1 (pool cheap). Escalada no máximo a T2, conforme
+admissibilidade; T3/T4 proibidos e Astra nunca. IDs de modelo não são fonte
+independente da policy.
 
 ## Shell
 O shell é irrestrito (`bash: "*": allow`). Respeite o escopo delegado e as instruções do Planner; `edit` permanece conforme o papel e `task: deny` impede criar subagentes. Permissão de shell não autoriza efeitos externos.
