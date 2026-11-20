@@ -1,7 +1,7 @@
 {
   // Model Router v1.4: Planner (agente build, sessao raiz) usa hy4 (tier operacional T1).
   // Planner usa hy4; Luna e fallback T1 apenas com prova independente de nao-inicio.
-  // O modelo global (topo do opencode.json) usa hy4, separado deste campo.
+  // O modelo global (topo do opencode.json) segue este pool T1 (free), derivado da policy; nao e fixo no template.
   // Derivado de source/registry/model-routing-policy.json por install/reconcile.
   // Nao edite manualmente para trocar modelos; altere a policy e aplique novamente.
   "planner": "opencode-go/hy4-flash-free",

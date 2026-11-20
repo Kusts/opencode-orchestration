@@ -414,7 +414,7 @@ Assert-CA ($plannerLoopUniq.Count -eq $fPlannerLoop.ReallyAttemptedModels.Count)
 Assert-CA ($fPlannerLoop.FallbackModel -notin @('opencode-go/muse-spark-1.3-contributor','opencode-go/deepseek-v4.1-flash','claude-agent/sonnet')) 'planner-loop-no-generic'
 
 # 32. Planner Haiku dispatch-alias tamper fails closed with no silent Muse: entry
-#     alias, entry model_id linkage, planner model_id and the
+#     alias, entry model_id linkage, planner fallback_model_id and the
 #     runtime-unverified metadata are each mutated in isolation. The planner
 #     stays Luna-only throughout: every case exhausts with the planner
 #     no-automatic-fallback exclusion, never a generic fallback, never T4.
@@ -437,7 +437,7 @@ function Invoke-PlannerAliasTamperCase {
 }
 Invoke-PlannerAliasTamperCase 'entry-alias' { param($j) $j.models.claude_haiku.alias = 'sonnet' } 'PLANNER_NO_AUTOMATIC_FALLBACK'
 Invoke-PlannerAliasTamperCase 'entry-model-id' { param($j) $j.models.claude_haiku.model_id = 'claude-agent/sonnet' } 'PLANNER_NO_AUTOMATIC_FALLBACK'
-Invoke-PlannerAliasTamperCase 'planner-model-id' { param($j) $j.planner.model_id = 'openai/gpt-6.1-terra' } 'PLANNER_NO_AUTOMATIC_FALLBACK'
+Invoke-PlannerAliasTamperCase 'planner-fallback-model-id' { param($j) $j.planner.fallback_model_id = 'openai/gpt-6.1-terra' } 'PLANNER_NO_AUTOMATIC_FALLBACK'
 Invoke-PlannerAliasTamperCase 'resolution-status' { param($j) $j.models.claude_haiku.resolution_status = 'runtime-verified' } 'PLANNER_NO_AUTOMATIC_FALLBACK'
 
 # 33. DeepSeek Go operator-selected T2 primary (ZDR expired-unconfirmed, no renewal claim).

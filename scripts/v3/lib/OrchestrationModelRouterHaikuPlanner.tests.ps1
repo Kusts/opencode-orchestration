@@ -67,8 +67,8 @@ $aliasUnknown = Resolve-ClaudeAgentAlias -AliasModelId 'claude-agent/unknown' -P
 Assert-HP ((-not [bool]$aliasUnknown.Matches) -and ([string]$aliasUnknown.Reason -ceq 'CLAUDE_UNKNOWN_ALIAS')) 'hp-alias-unknown-fail-closed'
 
 # 3. Planner/build uses Hy4 T1 with Luna as a held same-tier availability candidate.
-Assert-HP ([string]$pol.planner.primary -eq 'hy4' -and [string]$pol.planner.model_id -eq 'opencode-go/hy4-flash-free' -and `
-    [string]$pol.planner.provider -eq 'opencode-go' -and [string]$pol.planner.tier -eq 'T1') 'hp-planner-primary-hy4-T1'
+Assert-HP ([string]$pol.tiers.T1.primary -eq 'hy4' -and ([string]$pol.models.PSObject.Properties[[string]$pol.tiers.T1.primary].Value.model_id) -eq 'opencode-go/hy4-flash-free' -and `
+    ([string]$pol.models.PSObject.Properties[[string]$pol.tiers.T1.primary].Value.provider) -eq 'opencode-go' -and [string]$pol.planner.tier -eq 'T1' -and $null -eq $pol.planner.PSObject.Properties['model_id']) 'hp-planner-primary-hy4-T1-derived-from-T1'
 Assert-HP (([string]$pol.planner.fallback_model_id -ceq 'openai/gpt-6-luna') -and (-not [bool]$pol.planner.fallback_requires_capability_proof)) 'hp-planner-T1-Luna-availability-fallback-with-independent-no-start-proof'
 Assert-HP ([string]$pol.role_profiles.build.default_model -eq 'hy4') 'hp-build-profile-hy4'
 $sPlanner = Resolve-OrchestrationModelSelection -AgentName 'build' -IgnoreUserConfig $true -NativeModelOverrideProven $true

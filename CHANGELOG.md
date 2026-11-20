@@ -6,6 +6,19 @@
 
 - **Encerramento do orquestrador (2026-11-20):** o coordenador passa a ser explicitamente responsável por fechar os workers que criou (`worker-release --dispatch <id>` + confirmação no `worker-list`; só `--worktree current` fecha sozinho), mesclar as PRs/branches da missão somente com CI verde completo e fazer a higiene de worktrees/branches criados na orquestração, preservando stashes e trabalho pré-existente/de terceiros. Documentado na skill `hybrid-orchestration`, no bloco híbrido do `CLAUDE.md`, no `AGENTS.md` e em `docs/HYBRID-ORCHESTRATION.md`.
 
+- **Fonte única dos modelos (P1-03, issue #287):** `models.jsonc` passa a ser
+  override explícito opcional — ausente ou com chaves ausentes/vazias não é erro;
+  os valores canônicos vêm de `source/registry/model-routing-policy.json`
+  (`install.ps1:Validate-Models` expõe `Source`/`OverrideKeys`). O modelo global
+  nos templates V1/V2 deixa de ser literal e segue o pool T1 (`{{MODEL_FREE}}`);
+  a validação do instalador deriva global/T1 e title/T2 da policy/override em
+  vez de fixar hy4/luna. `planner.model_id`/`primary`/`provider` foram removidos
+  da policy: Router e Planner derivam a identidade do primário T1, preservando o
+  comportamento atual. Alterar os quatro primários T1–T4 exige editar apenas a
+  policy. Teste focado `tests/distribution/model-single-source.tests.ps1`
+  (25 asserts, PS5.1+PS7): fixture temporária valida policy alterada e override
+  preservado, sem tocar no HOME/config reais. Sem commit.
+
 - **Modo híbrido nativo (2026-11-19):** `install.ps1 -ClaudeHybrid` /
   `uninstall.ps1 -ClaudeHybrid` instalam a partir de `source/claude/` o bloco
   marcado em `CLAUDE.md` e a skill `hybrid-orchestration` (+ referências do
