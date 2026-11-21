@@ -51,6 +51,25 @@ os relatórios vinculados nem o [plano de maturidade](plans/ORCHESTRATION-OPERAT
 Sem daemon, scheduler, segundo Planner ou motor novo. Preservar configuração
 ativa e worktrees de terceiros; não usar force-push nem reset destrutivo.
 
+## Consolidação híbrida — 21/11/2026 (registro parcial)
+
+Registro parcial da missão de consolidação híbrida: sem conclusões novas, sem declaração de conclusão da missão e sem autonomia integral. Autoridade: [missão 2026-11-21](../evidence/v3.1/claude-hybrid/mission-2026-11-21.json). Inventários consolidados (Claude Code 2.1.330, Orca 1.4.267, OpenCode 2.3.2): [capacidades nativas](../evidence/v3.1/claude-hybrid/native-capabilities-2026-11-21.md).
+
+| Teste | Status |
+|---|---|
+| T0 Instalação/upgrade | PASS (ACTIVE_PROFILE_VERIFIED) |
+| T1 OpenCode direto | HOLD |
+| T2 Híbrido sequencial | FAIL parcial |
+| T3 Híbrido paralelo | PASS |
+| T4 Erro de envio | HOLD |
+| T5 Retomada real | HOLD |
+| T6 Delivery Git | PASS parcial |
+| T7 A/B de eficiência | NOT_MEASURED |
+| T8 Config sanitizada | HOLD |
+| T9 Skills e hooks | FAIL |
+
+Run `run_569a183e6205`; base `master@843d801`, estado `master@004b567`; PRs #302 e #301, CI 6/6. HOLDs e FAILs permanecem conforme a evidência; detalhes e achados A1–A9 no JSON vinculado.
+
 ## Evolução — 19/11/2026
 
 Veredito: implementado e validado; alterações consolidadas em 24 arquivos (+347/−823). PR #288 mesclado (617a3c1).

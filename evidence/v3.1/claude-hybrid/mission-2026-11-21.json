@@ -1,0 +1,140 @@
+{
+  "schema_version": "claude-hybrid-mission/v1",
+  "date": "2026-11-21",
+  "status": "partial",
+  "task_id": "task_aacaa8356d48",
+  "run": "run_569a183e6205",
+  "repo": {
+    "name": "Kusts/opencode-orchestration",
+    "branch": "Kusts/hy-evidencia",
+    "base": "master @ 843d801",
+    "state": "master @ 004b567"
+  },
+  "environment": {
+    "claude": "2.1.330",
+    "orca": "1.4.267",
+    "opencode": "2.3.2",
+    "opencode_pin": "2.3.0",
+    "opencode_pin_note": "bump é decisão humana; pin não alterado"
+  },
+  "prs": [
+    {
+      "number": 302,
+      "squash": "12546c4",
+      "scope": "instruções do coordenador e guarda do instalador",
+      "ci": "6/6"
+    },
+    {
+      "number": 301,
+      "squash": "004b567",
+      "scope": "dono único do placement e guarda AST",
+      "ci": "6/6"
+    }
+  ],
+  "tests": {
+    "T0": {
+      "name": "Instalação/upgrade",
+      "status": "PASS (ACTIVE_PROFILE_VERIFIED)",
+      "evidence": "install.ps1 -ClaudeHybrid em 14:44: 4/4 hashes da skill iguais à fonte, bloco igual, conteúdo do usuário em CLAUDE.md preservado, settings.json inalterado, segunda execução sem mudanças, skill nova listada na sessão ativa. Defeito menor: opencode.json foi reformatado com conteúdo idêntico (em correção)."
+    },
+    "T1": {
+      "name": "OpenCode direto",
+      "status": "HOLD",
+      "evidence": "Ainda não executado."
+    },
+    "T2": {
+      "name": "Híbrido sequencial",
+      "status": "FAIL parcial",
+      "evidence": "Em opencode-orchestration, build fez 0 escritas e coder (openai/gpt-6-luna) escreveu (sessões ses_e01781957ffelo303wRa8e1x2D, ses_e0178196effegTn64MCdXu5kvZ), reutilizando worktree e branch. Em repositório sem AGENTS.md de projeto, build fez 85 escritas, 0 subagent (hy-sanitizador)."
+    },
+    "T3": {
+      "name": "Híbrido paralelo",
+      "status": "PASS",
+      "evidence": "3 escritores new-child simultâneos na base 843d801, worktrees e branches distintos, sem worktree orchestration/<task-id> aninhado."
+    },
+    "T4": {
+      "name": "Erro de envio",
+      "status": "HOLD",
+      "evidence": "Falha real observada: ctx_24cd1d7eb369, agent_prompt_blocked, sem recuperação exercitada. Recuperação de draft e prompt ausente não reproduzidas."
+    },
+    "T5": {
+      "name": "Retomada real",
+      "status": "HOLD",
+      "evidence": "Interrupção real do coordenador não executada."
+    },
+    "T6": {
+      "name": "Delivery Git",
+      "status": "PASS parcial",
+      "evidence": "2 PRs com squash, CI verde, --match-head-commit, git pull --ff-only, worker-release, orca worktree rm, branches local e remota removidas, sem processo residual. Merge normal não testado."
+    },
+    "T7": {
+      "name": "A/B de eficiência",
+      "status": "NOT_MEASURED",
+      "evidence": "Ainda não executado."
+    },
+    "T8": {
+      "name": "Config sanitizada",
+      "status": "HOLD",
+      "evidence": "Correção em andamento; ainda não integrada."
+    },
+    "T9": {
+      "name": "Skills e hooks",
+      "status": "FAIL",
+      "evidence": "Cópia antiga de hybrid-orchestration em ~/.config/opencode/skills (sem exclusão de worker), fora do escopo do instalador deste repositório. build despachado criou 4 Dispatches Orca aninhados (depth=2)."
+    }
+  },
+  "findings": [
+    {
+      "id": "A1",
+      "title": "Drift da skill",
+      "detail": "causa = instalador não reexecutado após #293. Corrigido e reinstalado."
+    },
+    {
+      "id": "A2",
+      "title": "Incidente de escrita no HOME",
+      "detail": "validação ad hoc com $home = ... (variável somente leitura) gravou a skill e o bloco na raiz do perfil. Contido em quarentena; instalador agora recusa a raiz do perfil (CLAUDE_HOME_MUST_NOT_BE_PROFILE_ROOT)."
+    },
+    {
+      "id": "A3",
+      "title": "Worktree",
+      "detail": "New-OrchestrationWorktree não tem caller de produção; invariante fixado por teste AST."
+    },
+    {
+      "id": "A4",
+      "title": "Confirmação de despacho",
+      "detail": "worker-read --source transcript retorna provider_unsupported para opencode2; opencode session export exige senha do serviço; sessões dos workers ficam no banco gerenciado pelo Orca."
+    },
+    {
+      "id": "A5",
+      "title": "Delegação",
+      "detail": "conformidade depende do AGENTS.md de projeto; regra global em correção."
+    },
+    {
+      "id": "A6",
+      "title": "Watchdog #298 (HOLD)",
+      "detail": "falha sob carga na suíte completa (2 em 9 rodadas; isolados 0 em 90). Hipóteses de reutilização de PID, coleta CIM não atômica e ruído de processos seguem indeterminadas. Próximo experimento: instrumentar retornos de registro (ok, error, detail, enforced, PID, parentagem, marcador de fault injection) e separar CPU, churn e ambos."
+    },
+    {
+      "id": "A7",
+      "title": "Espelho",
+      "detail": "sanitizador antigo não redige segredos em objetos aninhados e formatos variados. Varredura heurística de 10.261 arquivos do snapshot: nenhum segredo real identificado (42 candidatos com forma de exemplo, referência ou fixture). Histórico Git não varrido."
+    },
+    {
+      "id": "A8",
+      "title": "Recursos",
+      "detail": "banco OpenCode principal de 13,6 GB; máquina de 15,4 GB entrou em pressão de memória durante a missão, e o gh run watch em background foi encerrado pelo Claude Code. Acompanhamento de CI passou a ser gh pr checks pontual com agendamento único."
+    },
+    {
+      "id": "A9",
+      "title": "Inventário",
+      "detail": "matriz de capacidades com correções de disponibilidade feitas no binário real. Afirmações de 'sem caller de produção' do inventário precisam de prova própria antes de qualquer remoção (OrchestrationPlannerWait.ps1 é referenciado pelo plugin)."
+    }
+  ],
+  "scope_note": "Registro parcial. Sem conclusões novas; sem declaração de conclusão da missão e sem autonomia integral. As decisões sugeridas nos inventários são sugestões, e toda afirmação de 'sem caller de produção' exige prova própria antes de remoção.",
+  "files_created": [
+    "evidence/v3.1/claude-hybrid/native-capabilities-2026-11-21.md",
+    "evidence/v3.1/claude-hybrid/mission-2026-11-21.json",
+    "docs/OPERATIONAL-STATUS.md",
+    "CHANGELOG.md"
+  ]
+}
