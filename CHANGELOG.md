@@ -25,8 +25,9 @@
   segue HOLD: o turno headless exige login e as credenciais reais não foram
   copiadas. Evidência: `evidence/v3.1/claude-hybrid/certification-2026-11-20.json`.
 
-- **Gate JEV com dono único (#296, em verificação/CI):** leitura única da flag
-  no PlannerLoop; comparativo local em
+- **Gate JEV com dono único (#296, mesclada em fb6185e):** leitura única da flag
+  no PlannerLoop; teste hermético (SKIP explícito sem o objeto base em checkout
+  raso); comparativo local em
   `evidence/v3.1/runtime-reliability/efficiency-comparison-2026-11-20.json`.
   Conclusão causal de eficiência `NOT_MEASURED`/HOLD — exige A/B com runtime vivo.
 
