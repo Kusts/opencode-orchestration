@@ -11,7 +11,7 @@ orca orchestration inbox --terminal run:<id> --limit 50
 ```
 
 Fontes que já existem (não crie outro banco/memória): Orca (Runs/Tasks/Dispatches),
-transcript do worker (`worker-read --source transcript`), `git status/diff`, Task/Goal
+saída rotulada do terminal do worker (`worker-read --limit 50 --json`, fonte auto; transcript estruturado pode não existir para opencode2), `git status/diff`, Task/Goal
 Kernel do OpenCode e AI Memory (decisões anteriores, consulta opcional).
 
 Três conclusões distintas:
@@ -23,3 +23,4 @@ Por task: já `completed` com evidência → não refaça; worker vivo/`unverifi
 reinicie (silêncio/timeout não prova saída); ausente/não iniciado comprovado → despache;
 efeito parcial no `git diff` → reconcilie antes de qualquer retry. Nunca crie Run/Task
 novo para contornar circuit breaker nem use `reset` sem o usuário abrir mão do estado.
+Ao retomar, confirme também repo, caminho, branch e base Git reais do worker; parentesco na UI do Orca não prova ancestralidade Git.
