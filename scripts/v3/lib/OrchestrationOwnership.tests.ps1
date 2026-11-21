@@ -223,27 +223,38 @@ try {
 
     # No caller de produção hoje: a criação vive só nos testes. No híbrido,
     # Orca é dono do workspace externo; impeça caller novo sem placement.
+    # Análise AST: comentários, splatting e chamadas multilinha não burlam a guarda.
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
-    $sourceExtensions = @('.ps1', '.psm1', '.md', '.json', '.jsonc', '.tmpl')
+    $worktreeCallerAllowlist = @()
+    # A allowlist está vazia hoje e só pode crescer com decisão explícita.
     $badWorktreeCallers = @()
     $sourceFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -File |
         Where-Object {
-            ($sourceExtensions -contains $_.Extension.ToLowerInvariant()) -and
+            (@('.ps1', '.psm1') -contains $_.Extension.ToLowerInvariant()) -and
             ($_.FullName -notmatch '[\\/]\.git[\\/]') -and
-            ($_.Name -notlike '*OrchestrationWorktree.ps1') -and
+            ($_.Name -cne 'OrchestrationWorktree.ps1') -and
             ($_.Name -notlike '*.tests.ps1')
         }
     foreach ($sourceFile in $sourceFiles) {
-        $sourceText = [IO.File]::ReadAllText($sourceFile.FullName)
-        if ($sourceText -notmatch 'New-OrchestrationWorktree') { continue }
-        if ($sourceText -match 'ORCA_WORKTREE_ID|ORCA_WORKSPACE_ID|ExternalWorkspace') { continue }
-        $sourceLines = [IO.File]::ReadAllLines($sourceFile.FullName)
-        for ($lineIndex = 0; $lineIndex -lt $sourceLines.Length; $lineIndex++) {
-            $line = $sourceLines[$lineIndex]
-            if ($line -match '^\s*#') { continue }
-            if ($line -match 'New-OrchestrationWorktree' -and $line -match '-TaskId') {
-                $relativePath = $sourceFile.FullName.Substring($repoRoot.Length).TrimStart('\', '/')
-                $badWorktreeCallers += ('{0}:{1}' -f $relativePath, ($lineIndex + 1))
+        $relativePath = $sourceFile.FullName.Substring($repoRoot.Length).TrimStart('\', '/')
+        if ($worktreeCallerAllowlist -contains $relativePath) { continue }
+        $tokens = $null
+        $errors = $null
+        try {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($sourceFile.FullName, [ref]$tokens, [ref]$errors)
+        }
+        catch {
+            $badWorktreeCallers += ('{0}:PARSE_ERROR' -f $relativePath)
+            continue
+        }
+        if ($errors.Count -gt 0) {
+            $badWorktreeCallers += ('{0}:PARSE_ERROR' -f $relativePath)
+            continue
+        }
+        $commands = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+        foreach ($cmd in $commands) {
+            if ($cmd.GetCommandName() -ceq 'New-OrchestrationWorktree') {
+                $badWorktreeCallers += ('{0}:{1}' -f $relativePath, $cmd.Extent.StartLineNumber)
             }
         }
     }
