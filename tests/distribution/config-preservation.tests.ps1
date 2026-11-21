@@ -44,6 +44,42 @@ try {
   $t = [IO.File]::ReadAllText((Join-Path $ocDir 'AGENTS.md'), [Text.Encoding]::UTF8)
   Assert ($t.Contains('Conteudo fora dos markers')) 'AGENTS.md conteudo externo preservado'
   Assert (([regex]::Matches($t, '<!-- opencode-orchestration:start -->')).Count -eq 1) 'AGENTS.md 1 par de markers'
+
+  $v2Home = Join-Path ([IO.Path]::GetTempPath()) ('oo-t-semantic-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $v2Home -Force | Out-Null
+  try {
+    $install = Join-Path $RepoRoot 'install.ps1'
+    $null = & $install -TargetHome $v2Home -Runtime V2 2>&1
+    Assert ($LASTEXITCODE -eq 0) 'V2 inicial exit 0'
+    $v2Config = Join-Path $v2Home '.config\opencode\opencode.json'
+    $obj = [IO.File]::ReadAllText($v2Config, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    $compact = ($obj | ConvertTo-Json -Depth 32 -Compress) + "`n"
+    [IO.File]::WriteAllText($v2Config, $compact, (New-Object Text.UTF8Encoding $false))
+    $hashBefore = (Get-FileHash -LiteralPath $v2Config -Algorithm SHA256).Hash
+    $out2 = @(& $install -TargetHome $v2Home -Runtime V2 2>&1)
+    $hashAfter = (Get-FileHash -LiteralPath $v2Config -Algorithm SHA256).Hash
+    Assert ($LASTEXITCODE -eq 0) 'V2 segunda execucao exit 0'
+    Assert ($hashAfter -eq $hashBefore) 'SHA256 idêntico após segunda execução'
+    $outputText = $out2 -join "`n"
+    Assert (($outputText -notmatch 'CONFLICT') -and ($outputText.Contains('[SKIP] opencode.json (semanticamente igual; bytes preservados)'))) 'plano SKIP sem CONFLICT'
+    $null = & $install -TargetHome $v2Home -Runtime V2 2>&1
+    Assert (($LASTEXITCODE -eq 0) -and ((Get-FileHash -LiteralPath $v2Config -Algorithm SHA256).Hash -eq $hashBefore)) 'terceira execucao estavel'
+
+    $obj = [IO.File]::ReadAllText($v2Config, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    $obj.experimental.subagent_depth = 99
+    [IO.File]::WriteAllText($v2Config, (($obj | ConvertTo-Json -Depth 32 -Compress) + "`n"), (New-Object Text.UTF8Encoding $false))
+    $hashChanged = (Get-FileHash -LiteralPath $v2Config -Algorithm SHA256).Hash
+    $null = & $install -TargetHome $v2Home -Runtime V2 2>&1
+    $afterChange = [IO.File]::ReadAllText($v2Config, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    Assert (($LASTEXITCODE -eq 0) -and ((Get-FileHash -LiteralPath $v2Config -Algorithm SHA256).Hash -ne $hashChanged)) 'mudança real aplicada'
+    Assert ($afterChange.experimental.subagent_depth -eq 1) 'subagent_depth restaurado para 1'
+    $backups = Get-ChildItem -LiteralPath (Join-Path $v2Home '.config\opencode\backups') -Filter opencode.json -Recurse -ErrorAction SilentlyContinue
+    $backupHas99 = $false
+    foreach ($backup in $backups) { if (([IO.File]::ReadAllText($backup.FullName, [Text.Encoding]::UTF8) | ConvertFrom-Json).experimental.subagent_depth -eq 99) { $backupHas99 = $true } }
+    Assert $backupHas99 'backup contém config divergente com subagent_depth 99'
+  } finally {
+    Remove-Item -LiteralPath $v2Home -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 finally {
   if (Test-Path -LiteralPath $TmpHome) { Remove-Item -LiteralPath $TmpHome -Recurse -Force -ErrorAction SilentlyContinue }

@@ -98,6 +98,18 @@ substantiva.
   de escopo/produto, gasto não autorizado, produção/destruição irreversível,
   segredos/dados pessoais ou autorização ausente.
 
+### Worker despachado pelo Orca
+
+Quando o prompt traz preâmbulo do Orca com `TASK_ID` e Dispatch IDs, o `build`
+é worker despachado, não o coordenador da missão:
+- do Orca use somente `check`, `ask` e `worker_done` no seu próprio terminal;
+  nunca chame `worker-start`, `task-create` nem `dispatch`, e não carregue a
+  skill `hybrid-orchestration` — criar workers e tasks é papel do coordenador;
+- use a ferramenta nativa `subagent` para especialistas;
+- leitura e planejamento continuam inline, mas toda mutação de arquivo vai a
+  um subagent: o worker não escreve arquivos diretamente, mesmo em edição
+  trivial.
+
 ## Método de desenvolvimento
 
 Use um único método híbrido: entender o contrato, resolver incertezas materiais,

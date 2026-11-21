@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- **Build despachado pelo Orca (P0-03/P1-02/T9):** com preâmbulo `TASK_ID` e
+  Dispatch IDs, o `build` não coordena nem escreve arquivos diretamente: usa
+  apenas `check`/`ask`/`worker_done` no Orca e delega mutações via `subagent`.
+  O instalador preserva os bytes do config quando o conteúdo mesclado é
+  semanticamente igual, mantendo o manifest consistente.
+
 - **Dono único do worktree (P0-02, #140, 2026-11-21):** adapters V1/V2 alinhados ao registry (`task_kernel` e `worktree_isolation` ON desde 2026-10-04; `runtime_grant_enforcement` OFF) e regra de propriedade declarada na política global: no híbrido o Orca é dono do workspace externo e o OpenCode trabalha no caminho recebido, sem segundo worktree; no modo direto permanece o isolamento nativo/fallback. Busca de callers confirma que a criação de worktree só ocorre em testes; guarda de regressão na suíte de propriedade falha se surgir caller de produção sem tratar o placement externo.
 - **Instruções híbridas consolidadas (2026-11-21, P0-01/03/04/06, P1-02):** `source/claude/` passa a ser instrução única e curta para o coordenador, alinhada ao Orca 1.4.267: placement explícito por Dispatch (leitura/escritor único → `current`, concorrência ou checkout compartilhado → `new-child`, independente → `new-top-level`; retry não herda, fases dependentes reutilizam worktree/branch, verificação real de repo/caminho/branch/base), papéis sem ambiguidade (Claude não implementa em missão; Orca inicia o `build`; sem `--model`), contrato observável até worktree/branch limpos e encerramento com release/merge/`pull --ff-only`/higiene. Removidos o padrão `--worktree current` para escrita, a autorização de edição trivial direta em missão e o workaround redundante de confirmação; `terminal send --enter` fica só como exceção delimitada. Testes do instalador cobrem AC1/AC2/AC4 em PS5.1 e PS7.
 
