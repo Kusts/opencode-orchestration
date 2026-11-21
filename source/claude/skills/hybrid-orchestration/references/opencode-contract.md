@@ -13,11 +13,17 @@ READ_SCOPE: <caminhos/áreas que pode ler>
 WRITE_SCOPE: <caminhos que pode alterar; vazio = somente leitura>
 ACCEPTANCE_CRITERIA: <critérios objetivos: comando + saída esperada; exit != 0 = falha>
 VALIDATION: <como provar (testes focados, git diff --check)>
-PROHIBITED_OPERATIONS: <ex.: push, instalar, escrita global, segredos>
+PROHIBITED_OPERATIONS: <ex.: padrão do build despachado abaixo>
 RETURN_FORMAT: candidate_pass | failed | blocked + refs de critério + evidência
 ESCALATION_CONDITIONS: <quando parar e perguntar: ambiguidade, credencial, ação irreversível>
 ALLOWED_ENVIRONMENT / PRODUCTION_AUTHORIZED / CREDENTIAL_SCOPE: <opcionais; ausência = false/vazio>
 ```
+
+PROHIBITED_OPERATIONS padrão para o `build` despachado (preâmbulo Orca com
+`TASK_ID`/Dispatch IDs): `worker-start`, `task-create`, `dispatch`, skill
+`hybrid-orchestration`, escrita direta de arquivos (use `subagent`, inclusive
+em edição trivial), push/PR/merge, install no perfil real, alteração de
+flags/pins e segredos. Do Orca, somente `check`, `ask` e `worker_done`.
 
 ## 2. Papéis e modelo
 

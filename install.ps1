@@ -311,6 +311,26 @@ function Convert-Canonical($Value) {
   return $j
 }
 
+function Test-JsonSemanticEqual($A, $B) {
+  if (($null -eq $A) -or ($null -eq $B)) { return (($null -eq $A) -and ($null -eq $B)) }
+  if (($A -is [array]) -or ($B -is [array])) {
+    if (($A -isnot [array]) -or ($B -isnot [array]) -or ($A.Count -ne $B.Count)) { return $false }
+    for ($i = 0; $i -lt $A.Count; $i++) { if (-not (Test-JsonSemanticEqual $A[$i] $B[$i])) { return $false } }
+    return $true
+  }
+  $aProps = @($A.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' } | Sort-Object Name)
+  $bProps = @($B.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' } | Sort-Object Name)
+  if (($aProps.Count -gt 0) -or ($bProps.Count -gt 0)) {
+    if ($aProps.Count -ne $bProps.Count) { return $false }
+    for ($i = 0; $i -lt $aProps.Count; $i++) {
+      if ($aProps[$i].Name -cne $bProps[$i].Name) { return $false }
+      if (-not (Test-JsonSemanticEqual $aProps[$i].Value $bProps[$i].Value)) { return $false }
+    }
+    return $true
+  }
+  return ((Convert-Canonical $A) -ceq (Convert-Canonical $B))
+}
+
 function Strip-JsoncComments([string]$Text) {
   # Conversor JSONC->JSON em DUAS FASES (mesma logica no uninstall.ps1).
   # Fase 1 remove comentarios // (ate o fim da linha, preservando a quebra)
@@ -1720,6 +1740,7 @@ else {
   }
 }
 $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
+$configSemanticallyUnchanged = (($null -ne $existingJsonObj) -and (-not $configHadComments) -and (Test-JsonSemanticEqual $existingJsonObj $mergedObj))
 
 # ---- P9.1 operacoes gerenciadas (fonte unica de verdade de paths) -----------
 # Cada arquivo gerenciado vira UMA operacao com RelativePath imutavel,
@@ -1758,6 +1779,9 @@ if (-not $NoCoreSkills) {
 $configRelPath = $configFileName
 $configLabel = $configFileName
 [void]$ops.Add(@{ Component = 'config'; RelativePath = $configRelPath; StageText = $mergedText; Label = $configLabel })
+if ($configSemanticallyUnchanged) {
+  foreach ($configOp in $ops) { if ($configOp.Component -eq 'config') { $configOp.StageText = $existingJsonRaw; $configOp.SkipWrite = $true } }
+}
 
 # Read prior ownership evidence before any transaction writes.
 $priorManifestPath = Join-Path $TargetHome '.opencode-orchestration\manifest.json'
@@ -1802,6 +1826,13 @@ if ($Clean -and ($null -ne $priorManifest) -and (Has-Member $priorManifest 'mana
   }
   $mergedText = (($mergedObj | ConvertTo-Json -Depth 32).TrimEnd() + "`n")
   foreach ($configOpClean in $ops) { if ($configOpClean.Component -eq 'config') { $configOpClean.StageText = $mergedText } }
+  $configSemanticallyUnchanged = (($null -ne $existingJsonObj) -and (-not $configHadComments) -and (Test-JsonSemanticEqual $existingJsonObj $mergedObj))
+  foreach ($configOpClean in $ops) {
+    if ($configOpClean.Component -eq 'config') {
+      if ($configSemanticallyUnchanged) { $configOpClean.StageText = $existingJsonRaw; $configOpClean.SkipWrite = $true }
+      elseif ($configOpClean.ContainsKey('SkipWrite')) { $configOpClean.Remove('SkipWrite') }
+    }
+  }
   foreach ($cop in $cleanFileOps) { [void]$ops.Add($cop) }
 }
 $staleSkillFiles = New-Object System.Collections.ArrayList
@@ -1938,6 +1969,10 @@ if ($bothConfigsExist) {
 }
 if ($null -eq $existingJsonObj) {
   Add-Plan 'CREATE' ($configFileName + ' (merged completo)')
+}
+elseif ($configSemanticallyUnchanged) {
+  Add-Plan 'SKIP' ($configFileName + ' (semanticamente igual; bytes preservados)')
+  Write-Output ('[SKIP] ' + $configFileName + ' (semanticamente igual; bytes preservados)')
 }
 elseif ($IsV2) {
   # Plano V2: mesma semantica do V1 sobre o dialeto nativo (agents/
@@ -2189,6 +2224,12 @@ try {
     try {
       foreach ($op in $ops) {
         $idx += 1
+        if ($op.SkipWrite) {
+          [void]$applied.Add(@{ Dst = $op.DestinationPath; Src = $op.StagePath; Label = $op.Label; Existed = $true; OrigHash = (Get-FileHashSafe $op.DestinationPath); Mode = 'unchanged' })
+          if (($InjectFailureAfter -eq 'apply-half') -and ($idx -eq $halfPoint)) { throw 'INJECTED_FAILURE_AFTER=apply-half (test-only)' }
+          if (($InjectFailureAfter -eq 'apply-last') -and ($idx -eq $ops.Count)) { throw 'INJECTED_FAILURE_AFTER=apply-last (test-only)' }
+          continue
+        }
         $existedBefore = Test-Path -LiteralPath $op.DestinationPath -PathType Leaf
         $origHash = $expectedHashes[$op.DestinationPath]
         if ($null -eq $origHash) { $origHash = Get-FileHashSafe $op.DestinationPath }
