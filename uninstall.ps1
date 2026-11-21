@@ -19,6 +19,8 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
   [string]$TargetHome,
+  # Opt-in do guardrail de destino: vale para -TargetHome (fluxo OpenCode) e
+  # para o destino Claude do fluxo -ClaudeHome/-ClaudeHybrid.
   [switch]$AllowUserProfileTarget,
   [string]$ManifestPath,
   # Opt-in: remove tambem a integracao Claude hybrid (somente conteudo gerenciado).
@@ -30,12 +32,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$TargetGuardLib = Join-Path $PSScriptRoot 'scripts\runtime\lib\OrchestrationTargetGuard.ps1'
+. $TargetGuardLib
+
 # Claude-only explicito: -ClaudeHybrid NUNCA dispara a desinstalacao OpenCode.
 # Repassa ao desinstalador Claude e encerra antes de qualquer logica de
 # agentes, config, skills, plugin ou manifest do OpenCode. A remocao do pacote
 # inteiro continua sendo o fluxo padrao (sem o switch), documentado em
 # docs/HYBRID-ORCHESTRATION.md.
 if ($ClaudeHybrid) {
+  # Mesmo guardrail de destino do install.ps1, aplicado agora ao destino Claude
+  # ANTES da delegacao. -ClaudeHome omitido resolve para ~/.claude (dentro do
+  # perfil) e exige -AllowUserProfileTarget; -ClaudeHome explicito fora do
+  # perfil (ex.: temporario) continua funcionando sem a flag.
+  $ClaudeTarget = if ([string]::IsNullOrWhiteSpace($ClaudeHome)) { Join-Path $env:USERPROFILE '.claude' } else { $ClaudeHome }
+  Assert-OrchestrationMutatingTargetAllowed -TargetPath $ClaudeTarget -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('ClaudeHome') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['ClaudeHome'])) -OptIn:$AllowUserProfileTarget
   $chScript = Join-Path $PSScriptRoot 'scripts\claude\install-claude-hybrid.ps1'
   $chArgs = @{ RepoRoot = $PSScriptRoot; Uninstall = $true }
   if (-not [string]::IsNullOrWhiteSpace($ClaudeHome)) { $chArgs.ClaudeHome = $ClaudeHome }
@@ -45,8 +56,6 @@ if ($ClaudeHybrid) {
 }
 
 if ([string]::IsNullOrWhiteSpace($TargetHome)) { $TargetHome = $env:USERPROFILE }
-$TargetGuardLib = Join-Path $PSScriptRoot 'scripts\runtime\lib\OrchestrationTargetGuard.ps1'
-. $TargetGuardLib
 Assert-OrchestrationMutatingTargetAllowed -TargetPath $TargetHome -ExplicitTargetProvided:($PSBoundParameters.ContainsKey('TargetHome') -and -not [string]::IsNullOrWhiteSpace([string]$PSBoundParameters['TargetHome'])) -OptIn:$AllowUserProfileTarget
 $ocDir = Join-Path $TargetHome '.config\opencode'
 if ([string]::IsNullOrWhiteSpace($ManifestPath)) {
