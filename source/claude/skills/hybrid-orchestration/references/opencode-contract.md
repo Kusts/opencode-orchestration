@@ -25,8 +25,8 @@ Dentro de missão híbrida o Claude não implementa: o Orca inicia o primário `
 (`--agent opencode2` ou `opencode`, conforme `worker-start --help`), e o `build`
 escolhe especialistas e delega toda escrita. **Sem `--model`**: a policy do OpenCode
 decide (T1/T2 vigentes, T3 Terra, T4 Sol proof-gated; fonte
-`source/registry/model-routing-policy.json`). Prova do modelo efetivo:
-`opencode session export <id>` → `model.id`/`providerID`.
+`source/registry/model-routing-policy.json`). Prova de delegação e de modelo: consulta SOMENTE LEITURA às tabelas `session_v2` (`parent_id`, `agent`) e `session_message` (`model`) do banco `%APPDATA%\orca\managed-data-accounts\opencode\<conta>\data\opencode\opencode.db`, sem imprimir conteúdo de mensagens nem tocar nas tabelas de conta ou credencial.
+
 
 ## 3. Placement (explícito em todo Dispatch)
 

@@ -64,9 +64,13 @@ reutilizam o mesmo worktree e branch. Inicie o primário `build` com `--agent op
 juntos; depois **encerre o turno**.
 
 **CONFIRMAR A EXECUÇÃO** — Uma rodada curta após cada `worker-start` e cada retry:
-`worker-show --json` e `worker-read --limit 50 --json` (`--source transcript` quando
-faltar evidência). `ready`/`input_accepted`/`activity=working` não provam turno
-iniciado. Os 5 casos e a regra de HOLD estão em `references/dispatch-confirmation.md`.
+`worker-show --json` e, para opencode2, `worker-read --limit 50 --json` (fonte
+auto/saída rotulada do terminal); se faltar evidência, `orca terminal read`
+somente leitura. `transcript_required` não é falha do worker.
+`ready`/`input_accepted`/`activity=working` não provam turno iniciado. Exit 0 da
+visão concisa do `worker-start` também não prova turno iniciado; só `--full`
+distingue `ready`. Os 5 casos e a regra de HOLD estão em
+`references/dispatch-confirmation.md`.
 
 **CONFIRMAR O PLACEMENT** — Após cada Dispatch e retry, verifique repo, caminho,
 branch e base Git reais. `--retry-of` não herda placement. Parentesco na UI do Orca
