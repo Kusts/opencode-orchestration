@@ -306,6 +306,39 @@ try {
   $terminalSendReferences = @($policyText -split "`n" | Where-Object { $_ -match 'terminal send.*--enter' })
   $sendInConfirmation = [IO.File]::ReadAllText((Join-Path $RepoRoot 'source\claude\skills\hybrid-orchestration\references\dispatch-confirmation.md'), [Text.Encoding]::UTF8)
   Assert (($terminalSendReferences.Count -eq 1) -and ($sendInConfirmation -match 'terminal send.*--enter')) 'AC4: terminal send --enter só na referência de exceção'
+
+  # --- 12. ClaudeHome nao pode ser raiz do perfil ------------------------------
+  $realProfileStamp = Get-ClaudeStamp $realClaude
+  $profileA = Join-Path $root 'profile-root-a'
+  $profileB = Join-Path $root 'profile-root-b'
+  New-Item -ItemType Directory -Path $profileA,$profileB -Force | Out-Null
+  $oldUser = $env:USERPROFILE
+  $oldHome = $env:HOME
+  try {
+    $env:USERPROFILE = $profileA
+    $env:HOME = $profileA
+    foreach ($badPath in @($profileA, (Join-Path $profileA 'child\..\'))) {
+      $out = & $engine -NoProfile -File $Script -RepoRoot $RepoRoot -ClaudeHome $badPath 2>&1
+      $badCode = $LASTEXITCODE
+      $badText = ($out -join "`n")
+      Assert (($badCode -eq 3) -and ($badText -match 'CLAUDE_HOME_MUST_NOT_BE_PROFILE_ROOT')) 'PROFILE ROOT: caminho equivalente bloqueado com exit 3'
+      $noArtifacts = @('CLAUDE.md', 'skills', '.opencode-orchestration-claude.json', 'backups') | Where-Object { Test-Path -LiteralPath (Join-Path $profileA $_) }
+      Assert ($noArtifacts.Count -eq 0) 'PROFILE ROOT: nenhum CLAUDE.md, skill, manifest ou backup criado'
+    }
+    $env:USERPROFILE = $profileB
+    $env:HOME = $profileA
+    $out = & $engine -NoProfile -File $Script -RepoRoot $RepoRoot -ClaudeHome $profileA 2>&1
+    Assert (($LASTEXITCODE -eq 3) -and (($out -join "`n") -match 'CLAUDE_HOME_MUST_NOT_BE_PROFILE_ROOT')) 'PROFILE ROOT: raiz derivada de HOME bloqueada'
+    $safeClaude = Join-Path $profileA '.claude'
+    $out = & $engine -NoProfile -File $Script -RepoRoot $RepoRoot -ClaudeHome $safeClaude 2>&1
+    Assert (($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath (Join-Path $safeClaude 'CLAUDE.md'))) 'PROFILE ROOT: <perfil>\.claude continua válido'
+  }
+  finally {
+    $env:USERPROFILE = $oldUser
+    $env:HOME = $oldHome
+  }
+  Assert ((Get-ClaudeStamp $realClaude) -ceq $realProfileStamp) 'PROFILE ROOT: stamp do perfil real inalterado'
+  Assert ((Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'CLAUDE.md')) -eq $false) 'PROFILE ROOT: CLAUDE.md do perfil real ausente'
 }
 finally {
   if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }

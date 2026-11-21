@@ -30,6 +30,17 @@ param(
 $ErrorActionPreference = 'Stop'
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
 if ([string]::IsNullOrWhiteSpace($ClaudeHome)) { $ClaudeHome = Join-Path $env:USERPROFILE '.claude' }
+$claudeHomeResolved = [IO.Path]::GetFullPath($ClaudeHome).TrimEnd('\', '/')
+$profileRoots = @()
+foreach ($profileRootCandidate in @($env:USERPROFILE, $env:HOME)) {
+  if (-not [string]::IsNullOrWhiteSpace($profileRootCandidate)) {
+    $profileRoots += [IO.Path]::GetFullPath($profileRootCandidate).TrimEnd('\', '/')
+  }
+}
+if (@($profileRoots | Where-Object { [string]::Equals($claudeHomeResolved, $_, [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) {
+  Write-Host 'PRECHECK FAILED (exit 3): CLAUDE_HOME_MUST_NOT_BE_PROFILE_ROOT' -ForegroundColor Red
+  exit 3
+}
 
 $MarkStart = '<!-- opencode-orchestration:claude-hybrid:start -->'
 $MarkEnd = '<!-- opencode-orchestration:claude-hybrid:end -->'
