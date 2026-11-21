@@ -22,6 +22,24 @@ function Run-Uninstaller([string]$OcHome_, [string]$ClaudeHome_) {
   return @{ code = $LASTEXITCODE; out = ($out -join "`n") }
 }
 function Count([string]$Text, [string]$Needle) { return ([regex]::Matches($Text, [regex]::Escape($Needle))).Count }
+# Impressao digital SOMENTE LEITURA de um ClaudeHome: alvos gerenciados + nomes
+# de topo. Usada para provar que o guardrail nao escreveu/removeu nada no perfil
+# real nem no perfil sandboxado. Nunca imprime conteudo de arquivo.
+function Get-ClaudeStamp([string]$Home_) {
+  if (-not (Test-Path -LiteralPath $Home_)) { return 'ABSENT' }
+  $lines = New-Object System.Collections.ArrayList
+  foreach ($rel in @('CLAUDE.md', '.opencode-orchestration-claude.json', 'settings.json', 'skills\hybrid-orchestration\SKILL.md')) {
+    $p = Join-Path $Home_ $rel
+    if (Test-Path -LiteralPath $p -PathType Leaf) {
+      $it = Get-Item -LiteralPath $p -Force
+      $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash
+      [void]$lines.Add(($rel + '|' + $it.Length + '|' + $it.LastWriteTimeUtc.Ticks + '|' + $h))
+    } else { [void]$lines.Add(($rel + '|ABSENT')) }
+  }
+  $top = @(Get-ChildItem -LiteralPath $Home_ -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object)
+  [void]$lines.Add(('TOP|' + ($top -join ',')))
+  return ($lines -join "`n")
+}
 $Start = '<!-- opencode-orchestration:claude-hybrid:start -->'
 $End = '<!-- opencode-orchestration:claude-hybrid:end -->'
 
@@ -179,6 +197,68 @@ try {
   Assert ($skill9b.Contains('CERT-UPDATE-MARKER')) 'P1-04.4: conteudo atualizado copiado'
   $r = Run-Uninstaller $oc9 $ch9
   Assert (($r.code -eq 0) -and (-not (Test-Path -LiteralPath (Join-Path $ch9 'skills\hybrid-orchestration')))) 'P1-04.5: uninstall -ClaudeHybrid remove skill'
+
+  # --- 10. Guardrail de destino no uninstall.ps1 -ClaudeHybrid ------------------
+  # NUNCA usa o perfil real como destino: USERPROFILE/HOME sao sandboxados apenas
+  # nos processos filhos. O perfil real e apenas inspecionado (leitura) antes/depois.
+  $realProfile = [Environment]::GetFolderPath('UserProfile')
+  $realClaude = Join-Path $realProfile '.claude'
+  $realBefore = Get-ClaudeStamp $realClaude
+
+  $sbRoot = Join-Path $root 'guard'
+  $sbProfile = Join-Path $sbRoot 'profile'
+  $sbClaude = Join-Path $sbProfile '.claude'
+  New-Item -ItemType Directory -Path $sbClaude -Force | Out-Null
+  $r = Run-Installer $sbClaude @()
+  Assert ($r.code -eq 0) 'GUARD setup: install no ClaudeHome do perfil sandboxado'
+  $sbBefore = Get-ClaudeStamp $sbClaude
+
+  $oldUser = $env:USERPROFILE
+  $oldHome = $env:HOME
+  try {
+    $env:USERPROFILE = $sbProfile
+    $env:HOME = $sbProfile
+
+    # (a) sem -ClaudeHome e sem a flag: falha do guard ANTES de qualquer escrita.
+    # O stderr esperado vira ErrorRecord no PS 5.1 com 2>&1 + EAP=Stop; abrir
+    # o escopo apenas nesta chamada (restaurado no finally).
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $out = & $engine -NoProfile -File (Join-Path $RepoRoot 'uninstall.ps1') -ClaudeHybrid 2>&1
+      $gCode = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $oldEap }
+    $gText = ($out -join "`n")
+    Assert ($gCode -ne 0) 'GUARD: sem -ClaudeHome e sem flag => exit != 0'
+    Assert ($gText -match 'MUTATING_TARGET_REQUIRES_EXPLICIT_PATH') 'GUARD: codigo MUTATING_TARGET_REQUIRES_EXPLICIT_PATH na saida'
+    Assert ($gText -notmatch 'Claude hybrid ->') 'GUARD: desinstalador Claude nao foi invocado (falha previa)'
+    Assert ((Get-ClaudeStamp $sbClaude) -ceq $sbBefore) 'GUARD: perfil sandboxado intacto (nenhuma escrita/remocao)'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $sbClaude 'backups'))) 'GUARD: nenhum backup criado no sandbox'
+    Assert ((Get-ClaudeStamp $realClaude) -ceq $realBefore) 'GUARD: ~/.claude real intacto (hash/metadados)'
+
+    # (b) opt-in explicito apontando ao perfil sandboxado: funciona
+    $out = & $engine -NoProfile -File (Join-Path $RepoRoot 'uninstall.ps1') -ClaudeHybrid -ClaudeHome $sbClaude -AllowUserProfileTarget 2>&1
+    Assert ($LASTEXITCODE -eq 0) 'GUARD: -AllowUserProfileTarget no perfil sandboxado => exit 0'
+    $sbText = [IO.File]::ReadAllText((Join-Path $sbClaude 'CLAUDE.md'), [Text.Encoding]::UTF8)
+    Assert ((-not $sbText.Contains($Start)) -and (-not $sbText.Contains($End))) 'GUARD: bloco removido com opt-in'
+    Assert (-not (Test-Path (Join-Path $sbClaude '.opencode-orchestration-claude.json'))) 'GUARD: manifest removido com opt-in'
+    Assert ((Get-ClaudeStamp $realClaude) -ceq $realBefore) 'GUARD: ~/.claude real intacto apos opt-in no sandbox'
+  }
+  finally {
+    $env:USERPROFILE = $oldUser
+    $env:HOME = $oldHome
+  }
+
+  # (c) regressao: -ClaudeHome temporario explicito continua funcionando sem flag
+  $hc10 = Join-Path $root 'guard-explicit-temp'
+  New-Item -ItemType Directory -Path $hc10 -Force | Out-Null
+  $r = Run-Installer $hc10 @()
+  Assert ($r.code -eq 0) 'GUARD setup: install em ClaudeHome temporario explicito'
+  $r = Run-Uninstaller $root $hc10
+  $txt10 = [IO.File]::ReadAllText((Join-Path $hc10 'CLAUDE.md'), [Text.Encoding]::UTF8)
+  Assert (($r.code -eq 0) -and (-not $txt10.Contains($Start))) 'GUARD: -ClaudeHome temporario sem flag => exit 0 e bloco removido (regressao P0-02)'
+  Assert ((Get-ClaudeStamp $realClaude) -ceq $realBefore) 'GUARD: ~/.claude real intacto ao final da secao'
 }
 finally {
   if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }

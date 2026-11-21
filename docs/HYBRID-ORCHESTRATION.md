@@ -37,18 +37,25 @@ Instalação opt-in, preservando o que já existe (backup em
 
 ### Fluxo real e guardrail de destino
 
-`install.ps1 -ClaudeHybrid` dot-source `scripts/runtime/lib/OrchestrationTargetGuard.ps1`
-e aplica o guardrail **somente a `-TargetHome`** (destino OpenCode). O `-ClaudeHome`
-é apenas repassado ao instalador Claude e **não** passa por esse guardrail.
-Comportamento observado na certificação P1-04 (2026-11-20):
+Ambos os fluxos dot-source `scripts/runtime/lib/OrchestrationTargetGuard.ps1`
+e chamam `Assert-OrchestrationMutatingTargetAllowed` **antes de qualquer escrita**.
+`install.ps1` aplica o guardrail a `-TargetHome` (destino OpenCode; `-ClaudeHome`
+continua apenas repassado ao instalador Claude), enquanto `uninstall.ps1` aplica
+o **mesmo** guardrail ao destino Claude do caminho `-ClaudeHybrid`. Com
+`-ClaudeHome` omitido, o destino Claude padrão é `~/.claude` (dentro do perfil) e
+a operação falha com `MUTATING_TARGET_REQUIRES_EXPLICIT_PATH`; um `-ClaudeHome`
+explícito fora do perfil (por exemplo, temporário) continua funcionando sem a flag.
+Comportamento observado na certificação P1-04 (2026-11-20) e na frente do guardrail
+de desinstalação (2026-11-21):
 
 - `install.ps1 -ClaudeHybrid` com `-TargetHome` omitido (padrão = `USERPROFILE`)
   falha antes de qualquer escrita com `MUTATING_TARGET_REQUIRES_EXPLICIT_PATH`.
   Para o perfil real são exigidos `-AllowUserProfileTarget` **e autorização explícita**.
-- `uninstall.ps1 -ClaudeHybrid` retorna antes do guardrail (linhas 38-45 do script)
-  e usa `~/.claude` como destino padrão, sem opt-in: é uma remoção não guardada.
-  Sempre informe `-ClaudeHome` explicitamente; apontar ao perfil real requer
-  autorização explícita.
+- `uninstall.ps1 -ClaudeHybrid` com `-ClaudeHome` omitido falha da mesma forma,
+  antes de delegar ao desinstalador Claude (nenhum arquivo escrito ou removido).
+  Para o perfil real são exigidos `-AllowUserProfileTarget` **e autorização explícita**;
+  `-ClaudeHome` temporário explícito não exige a flag. A remoção do pacote inteiro
+  (sem `-ClaudeHybrid`) e o fluxo `install.ps1 -ClaudeHybrid` não foram alterados.
 
 Os comandos abaixo foram **executados contra HOME temporário** na certificação
 P1-04 (evidência em `evidence/v3.1/claude-hybrid/certification-2026-11-20.json`).
@@ -72,7 +79,7 @@ pwsh -NoProfile -File .\uninstall.ps1 -ClaudeHybrid -ClaudeHome <tmp>\claude
 
 ```powershell
 pwsh -NoProfile -File .\install.ps1 -ClaudeHybrid -AllowUserProfileTarget  # guardrail do TargetHome; ClaudeHome continua sem guardrail
-pwsh -NoProfile -File .\uninstall.ps1 -ClaudeHybrid                        # SEM guardrail: destino padrão ~/.claude; use -ClaudeHome explícito
+pwsh -NoProfile -File .\uninstall.ps1 -ClaudeHybrid -AllowUserProfileTarget # guardrail do destino Claude; ~/.claude com opt-in explícito
 ```
 
 `uninstall.ps1 -ClaudeHybrid` é Claude-only: delega em
@@ -238,9 +245,10 @@ efeito.
 - A invocação do skill por um turno real do modelo (`claude -p`) não foi provada
   no isolamento (`HOLD_NOT_VERIFIED`); apenas descoberta/carga pelo runtime e
   frontmatter válido foram comprovados.
-- `uninstall.ps1 -ClaudeHybrid` não passa pelo guardrail de destino e mira
-  `~/.claude` por padrão; exige `-ClaudeHome` explícito e autorização para perfil
-  real (comportamento do chamador, fora do escopo de código desta frente).
+- `uninstall.ps1 -ClaudeHybrid` agora passa pelo guardrail de destino: sem
+  `-ClaudeHome` (padrão `~/.claude`) falha antes de qualquer escrita, e o perfil
+  real exige `-AllowUserProfileTarget` **e autorização explícita**. Os testes usam
+  somente USERPROFILE/HOME sandboxados; nenhuma escrita em perfis reais.
 - Não há medição conclusiva de eficiência (cenário E): nenhum ganho é alegado.
 - A configuração viva não foi reconciliada; o `models.jsonc` local é fora do
   controle de versão e sua conformidade precisa ser verificada no ambiente.

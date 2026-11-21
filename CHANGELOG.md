@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **Guardrail de destino no uninstall híbrido (2026-11-21):** `uninstall.ps1 -ClaudeHybrid` passa a aplicar o mesmo guardrail de destino do `install.ps1` (OrchestrationTargetGuard) ao destino Claude: sem `-ClaudeHome` explícito fora do perfil, exige `-AllowUserProfileTarget`; falha antes de qualquer escrita (`MUTATING_TARGET_REQUIRES_EXPLICIT_PATH`). Testes claude-hybrid 60/60 em PS5.1 e PS7.
+
 - **Correção do instalador híbrido (#291, 2026-11-20):** o bloco marcado em `CLAUDE.md` só é atualizado/removido quando confere com o `block_sha256` do manifest; divergência vira `CONFLICT` preservado (inclusive na desinstalação parcial, que mantém o manifest e o registro dos arquivos modificados). `uninstall.ps1 -ClaudeHybrid` passa a ser Claude-only e não toca a instalação OpenCode; a remoção completa do pacote segue pelo `uninstall.ps1` padrão. Testes estendidos em PS 5.1 e PS7.
 
 - **Encerramento do orquestrador (#293, 2026-11-20):** o coordenador passa a ser explicitamente responsável por fechar os workers que criou (`worker-release --dispatch <id>` + confirmação no `worker-list`; só `--worktree current` fecha sozinho), mesclar as PRs/branches da missão somente com CI verde completo e fazer a higiene de worktrees/branches criados na orquestração, preservando stashes e trabalho pré-existente/de terceiros. Documentado na skill `hybrid-orchestration`, no bloco híbrido do `CLAUDE.md`, no `AGENTS.md` e em `docs/HYBRID-ORCHESTRATION.md`.
