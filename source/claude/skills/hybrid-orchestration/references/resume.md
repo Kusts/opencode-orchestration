@@ -23,3 +23,4 @@ Por task: já `completed` com evidência → não refaça; worker vivo/`unverifi
 reinicie (silêncio/timeout não prova saída); ausente/não iniciado comprovado → despache;
 efeito parcial no `git diff` → reconcilie antes de qualquer retry. Nunca crie Run/Task
 novo para contornar circuit breaker nem use `reset` sem o usuário abrir mão do estado.
+Ao retomar, confirme também repo, caminho, branch e base Git reais do worker; parentesco na UI do Orca não prova ancestralidade Git.

@@ -65,7 +65,7 @@ try {
   $before = [IO.File]::ReadAllText((Join-Path $h1 'CLAUDE.md'), [Text.Encoding]::UTF8)
   $r = Run-Installer $h1 @()
   $after = [IO.File]::ReadAllText((Join-Path $h1 'CLAUDE.md'), [Text.Encoding]::UTF8)
-  Assert (($r.code -eq 0) -and ($before -ceq $after) -and ($r.out -match 'Nada a fazer')) 'segundo run sem mudanca'
+  Assert (($r.code -eq 0) -and ($before -ceq $after) -and (($r.out -match 'Nada a fazer') -or ($r.out -match '\[SKIP\]')) -and ($r.out -notmatch '\[(UPDATE|CREATE|ADOPT|CONFLICT)\]')) 'segundo run sem mudanca'
 
   # --- 3. preservacao + adocao da secao legada sem marcadores ------------------
   $h2 = Join-Path $root 'legacy'
@@ -259,6 +259,53 @@ try {
   $txt10 = [IO.File]::ReadAllText((Join-Path $hc10 'CLAUDE.md'), [Text.Encoding]::UTF8)
   Assert (($r.code -eq 0) -and (-not $txt10.Contains($Start))) 'GUARD: -ClaudeHome temporario sem flag => exit 0 e bloco removido (regressao P0-02)'
   Assert ((Get-ClaudeStamp $realClaude) -ceq $realBefore) 'GUARD: ~/.claude real intacto ao final da secao'
+
+  # --- 11. Fonte Claude única: fidelidade, upgrade, idempotência e policy -------
+  $h11 = Join-Path $root 'source-fidelity'
+  New-Item -ItemType Directory -Path $h11 -Force | Out-Null
+  $r = Run-Installer $h11 @()
+  Assert ($r.code -eq 0) 'AC1: install em ClaudeHome vazio'
+  $sourceSkill = Join-Path $RepoRoot 'source\claude\skills\hybrid-orchestration'
+  $targetSkill = Join-Path $h11 'skills\hybrid-orchestration'
+  foreach ($sourceFile in @(Get-ChildItem -LiteralPath $sourceSkill -Recurse -File)) {
+    $relative = $sourceFile.FullName.Substring($sourceSkill.Length).TrimStart('\','/').Replace('\','/')
+    $targetFile = Join-Path $targetSkill ($relative.Replace('/','\'))
+    $sameHash = (Test-Path -LiteralPath $targetFile -PathType Leaf) -and
+      ((Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash -ceq (Get-FileHash -LiteralPath $targetFile -Algorithm SHA256).Hash)
+    Assert $sameHash ('AC1: SHA256 instalado igual à fonte: ' + $relative)
+  }
+  $sourceBlock = [IO.File]::ReadAllText((Join-Path $RepoRoot 'source\claude\CLAUDE.hybrid.md'), [Text.Encoding]::UTF8)
+  $targetBlock = [IO.File]::ReadAllText((Join-Path $h11 'CLAUDE.md'), [Text.Encoding]::UTF8)
+  $startAt = $targetBlock.IndexOf($Start) + $Start.Length
+  $endAt = $targetBlock.IndexOf($End)
+  $installedBody = $targetBlock.Substring($startAt, $endAt - $startAt)
+  $normalize = { param($s) (($s -replace "`r`n", "`n").Trim()) }
+  Assert ((& $normalize $installedBody) -ceq (& $normalize $sourceBlock)) 'AC1: corpo instalado igual à fonte (EOL normalizado/Trim)'
+  $r = Run-Installer $h11 @()
+  Assert (($r.code -eq 0) -and ($r.out -notmatch '\[(UPDATE|CREATE|ADOPT|CONFLICT)\]') -and (($r.out -match '\[SKIP\]') -or ($r.out -match 'Nada a fazer'))) 'AC2: segunda instalação idempotente'
+
+  $scratch11 = Join-Path $root 'upgrade-scratch'
+  New-Item -ItemType Directory -Path (Join-Path $scratch11 'source') -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'source\claude') -Destination (Join-Path $scratch11 'source\claude') -Recurse -Force
+  $oldContent = [IO.File]::ReadAllText((Join-Path $scratch11 'source\claude\skills\hybrid-orchestration\SKILL.md'), [Text.Encoding]::UTF8)
+  [IO.File]::WriteAllText((Join-Path $scratch11 'source\claude\skills\hybrid-orchestration\SKILL.md'), ($oldContent + "`n<!-- upgrade-fixture -->"), $Utf8)
+  $upgradeHome = Join-Path $root 'upgrade-home'
+  New-Item -ItemType Directory -Path $upgradeHome -Force | Out-Null
+  $r = & $engine -NoProfile -File $Script -RepoRoot $scratch11 -ClaudeHome $upgradeHome 2>&1
+  $oldCode = $LASTEXITCODE
+  $r = Run-Installer $upgradeHome @()
+  Assert (($oldCode -eq 0) -and ($r.code -eq 0) -and ($r.out -match '\[UPDATE\] skills/hybrid-orchestration/SKILL.md')) 'AC2: upgrade genérico reporta UPDATE'
+
+  $policyFiles = @((Join-Path $RepoRoot 'source\claude\skills\hybrid-orchestration\SKILL.md')) + @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'source\claude\skills\hybrid-orchestration\references') -Filter '*.md' -File | ForEach-Object { $_.FullName })
+  $policyText = ($policyFiles | ForEach-Object { [IO.File]::ReadAllText($_, [Text.Encoding]::UTF8) }) -join "`n"
+  $placementRows = @($policyText -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\|.*(new-child|new-top-level).*\|$' })
+  Assert (($placementRows.Count -ge 2) -and ($policyText -match 'checkout exclusivo')) 'AC4: placement current restrito e new-child/new-top-level definidos'
+  $unsafeCurrent = @($policyText -split "`n" | Where-Object { $_ -match '--worktree\s+current' -and $_ -notmatch 'só para leitura|somente.*leitura|único escritor|escritor único|checkout exclusivo' })
+  Assert ($unsafeCurrent.Count -eq 0) 'AC4: sem current como padrão geral de escrita'
+  Assert (($policyText -notmatch '(?i)edição trivial direta em missão') -and ($policyText -notmatch '(?i)edição trivial.*direto.*híbrido')) 'AC4: sem autorização de edição trivial direta em missão'
+  $terminalSendReferences = @($policyText -split "`n" | Where-Object { $_ -match 'terminal send.*--enter' })
+  $sendInConfirmation = [IO.File]::ReadAllText((Join-Path $RepoRoot 'source\claude\skills\hybrid-orchestration\references\dispatch-confirmation.md'), [Text.Encoding]::UTF8)
+  Assert (($terminalSendReferences.Count -eq 1) -and ($sendInConfirmation -match 'terminal send.*--enter')) 'AC4: terminal send --enter só na referência de exceção'
 }
 finally {
   if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }

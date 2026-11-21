@@ -96,55 +96,18 @@ atualização quanto na desinstalação; a desinstalação parcial mantém o man
 para não perder o registro desses conflitos. Não toca `settings.json`, hooks nem
 outras skills. Em divergência, o pedido atual do usuário prevalece.
 
-## Integração Orca
+## Integração Orca, contrato observável e encerramento
 
-Verbos usados pelo worker (os hooks nativos do OpenCode são preservados — nada
-é desligado ou substituído):
+O guia instalado (`orca skills get orchestration --full`) e `worker-start --help` são a fonte de verdade dos comandos; a instrução operacional do coordenador vive em `source/claude/` (`CLAUDE.hybrid.md` + skill `hybrid-orchestration`). Resumo:
 
-- `worker-start` — inicia um worker com `--spec`, `--agent` e `--worktree`.
-- `worker-show` / `worker-read` — inspecionam estado e saída de um worker.
-- `worker-stop` / `worker-abandon` — encerram ou abandonam um worker.
-- `check --run <id>` — lê mensagens do coordenador para a execução corrente.
-- `worker_done` — sinaliza conclusão ao coordenador (`--outcome succeeded` ou
-  `--outcome failed`), com `task-id` e `dispatch-id`.
+- O Orca inicia o primário `build` do OpenCode; o `build` escolhe especialistas e delega toda escrita, sem `--model`.
+- Placement explícito em cada Dispatch: `current` só leitura/escritor único em checkout exclusivo; `new-child` para concorrência ou checkout compartilhado; `new-top-level` para trabalho independente. Retry não herda placement; verifique repo/caminho/branch/base reais (parentesco na UI do Orca não é ancestralidade Git).
+- Contrato do spec e placement: `source/claude/skills/hybrid-orchestration/references/opencode-contract.md`. Confirmação P0 e os 5 casos: `references/dispatch-confirmation.md`. Retomada: `references/resume.md`.
+- O worker não vê o terminal do coordenador; comunicação passa por `orca orchestration ask/send/worker_done` com `--from` do próprio terminal. Nunca conduza worker pelo terminal; use `send` (exceção delimitada em `dispatch-confirmation.md`).
 
-O worker não vê o terminal do coordenador; toda comunicação (pergunta,
-bloqueio, conclusão) passa por `orca orchestration ask/send` com `--from` apontando
-ao seu próprio terminal.
+Contrato observável: Dispatch criado → prompt recebido → turno iniciado → progresso → `worker_done` → verificado → integrado → worker liberado → worktree e branch limpos. `worker_done` não é prova; `worker-release --dispatch` só fecha o terminal (não remove worktree); CI verde não é merge.
 
-## Confirmação de execução P0 após `worker-start`
-
-`ready`/`input_accepted`/`activity=working` não provam que o turno da task
-correta começou. A skill exige uma rodada de verificação (`worker-show`,
-`worker-read`, `terminal read` só se faltar evidência) e trata 5 casos:
-executou; texto no draft sem submeter (um único `terminal send --enter`); prompt
-ausente (`worker-stop`/`abandon` + `worker-start --task --retry-of` sem `--spec`);
-Dispatch sem execução observável; estado ambíguo após falha de comunicação
-(`request-show`/`--retry-request`, reconciliar). Detalhe normativo em
-`source/claude/skills/hybrid-orchestration/references/dispatch-confirmation.md`.
-Princípio: comprovadamente não iniciado ⇒ recupera; desconhecido ⇒ `HOLD`.
-
-## Encerramento da missão
-
-O coordenador (Claude) é responsável pelo fecho ao longo e ao fim da missão:
-
-1. **Fechar os workers que criou:** após aceitar a evidência de cada worker, rode
-   `orca orchestration worker-release --dispatch <id>` e confirme com `worker-list`
-   (`terminalState=released`, `liveness=exited`). Apenas workers iniciados com
-   `--worktree current` fecham sozinhos; os de `--worktree new-child`/`new-top-level`
-   ficam abertos por padrão (`worker-keep-open` só se o usuário for usar o chat). Não
-   liberar worker não-concluído; falha/estado ambíguo ⇒ `worker-stop`/reconciliação
-   conforme `source/claude/skills/hybrid-orchestration/references/resume.md`, sem
-   duplicar.
-2. **Merge:** mesclar as PRs/branches criadas pela missão somente com CI verde completo
-   e critérios de aceite comprovados — nunca com CI pendente/vermelho. `gh pr checks` é
-   pontual, sem laço de espera/polling.
-3. **Higiene:** após o merge, remover worktrees filhos (Orca ou `git worktree remove`
-   sem `--force`, só se limpos e totalmente mesclados) e branches locais/remotas
-   mescladas que a missão criou. Nunca apagar trabalho não mesclado, stashes ou
-   branches/worktrees pré-existentes ou de terceiros; relatar removidos e preservados
-   (com motivo) no relatório final. Ações irreversíveis fora do que a missão criou
-   exigem confirmação.
+O coordenador, ao longo e ao fim da missão: segue `next` do `worker-list`; libera workers concluídos (`worker-release --dispatch <id>` + confirmação), sem liberar não-concluídos; faz PR/checks/merge confirmado e `git pull --ff-only` na base; remove só worktrees/branches da missão, limpos e mesclados, sem `--force`, preservando stashes e trabalho pré-existente/de terceiros. Squash merge não aparece como ancestral: prova pelo estado da PR e pela ausência de commits locais inéditos. Detalhes normativos em `source/claude/`.
 
 ## Homologação A–G
 
