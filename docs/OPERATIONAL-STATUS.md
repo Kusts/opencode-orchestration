@@ -34,7 +34,7 @@ os relatórios vinculados nem o [plano de maturidade](plans/ORCHESTRATION-OPERAT
 - Permissões allow/ask/deny: F3 foi executada no runtime 2.3.0, mas segue HOLD por ausência de evento/gate efetivo observável. Alterações de permissões/segurança não estão certificadas.
 - Shell irrestrito nos 19 workers: risco comportamental residual; `edit: deny` não impede escrita via shell. A restrição de shell não é um limite técnico de contenção.
 - Fallback real para 429/quota/503: só há cobertura sintética.
-- Eficiência: conclusão causal `NOT_MEASURED`/HOLD. A telemetria disponível não tem baseline comparável e o comparativo local do gate JEV (PR #296, em verificação; `evidence/v3.1/runtime-reliability/efficiency-comparison-2026-11-20.json`) cobre apenas forma/estado do gate, sem tokens, custo ou latência de runtime vivo. Exige A/B controlado com runtime V2 vivo.
+- Eficiência: conclusão causal `NOT_MEASURED`/HOLD. A telemetria disponível não tem baseline comparável e o comparativo local do gate JEV (PR #296, mesclada (fb6185e); `evidence/v3.1/runtime-reliability/efficiency-comparison-2026-11-20.json`) cobre apenas forma/estado do gate, sem tokens, custo ou latência de runtime vivo. Exige A/B controlado com runtime V2 vivo.
 - Instabilidade conhecida em CI (watchdog): os casos FIX5-2, FIX4-2b, JOB46 e F-B de `OrchestrationRuntimeWatchdogEnforcement.tests.ps1` falharam de forma intermitente nos runs 44745856311, 44756797911 e 44781078525 e passaram em reexecução com o mesmo código; sem causa raiz provada.
 
 ## Backlog futuro
@@ -63,7 +63,8 @@ Detalhes, decisões e próximos passos: [relatório da evolução](../evidence/e
 
 Mesclados: #288 (617a3c1), #289 (684290e, modo híbrido), #291 (44f832e),
 #292 (a09a1a2, policy como fonte única de modelos), #293 (8e37c0e,
-encerramento pelo orquestrador) e #295 (69e3309, certificação isolada P1-04;
-P1-05 em HOLD). PR #296 (leitura única do gate de flag JEV no PlannerLoop)
-permanece em verificação/CI. Nenhum HOLD de autonomia foi fechado por estes
-merges; a conclusão causal de eficiência segue `NOT_MEASURED`.
+encerramento pelo orquestrador), #295 (69e3309, certificação isolada P1-04;
+P1-05 em HOLD), #296 (fb6185e, leitura única do gate de flag JEV no PlannerLoop)
+e #297 (e8ea179, reconciliação do estado operacional). Nenhum HOLD de autonomia
+foi fechado por estes merges; a conclusão causal de eficiência segue
+`NOT_MEASURED`.
