@@ -221,6 +221,34 @@ try {
         try { [System.Threading.Thread]::CurrentThread.CurrentUICulture = $prevOwnUICulture } catch { }
     }
 
+    # No caller de produção hoje: a criação vive só nos testes. No híbrido,
+    # Orca é dono do workspace externo; impeça caller novo sem placement.
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+    $sourceExtensions = @('.ps1', '.psm1', '.md', '.json', '.jsonc', '.tmpl')
+    $badWorktreeCallers = @()
+    $sourceFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -File |
+        Where-Object {
+            ($sourceExtensions -contains $_.Extension.ToLowerInvariant()) -and
+            ($_.FullName -notmatch '[\\/]\.git[\\/]') -and
+            ($_.Name -notlike '*OrchestrationWorktree.ps1') -and
+            ($_.Name -notlike '*.tests.ps1')
+        }
+    foreach ($sourceFile in $sourceFiles) {
+        $sourceText = [IO.File]::ReadAllText($sourceFile.FullName)
+        if ($sourceText -notmatch 'New-OrchestrationWorktree') { continue }
+        if ($sourceText -match 'ORCA_WORKTREE_ID|ORCA_WORKSPACE_ID|ExternalWorkspace') { continue }
+        $sourceLines = [IO.File]::ReadAllLines($sourceFile.FullName)
+        for ($lineIndex = 0; $lineIndex -lt $sourceLines.Length; $lineIndex++) {
+            $line = $sourceLines[$lineIndex]
+            if ($line -match '^\s*#') { continue }
+            if ($line -match 'New-OrchestrationWorktree' -and $line -match '-TaskId') {
+                $relativePath = $sourceFile.FullName.Substring($repoRoot.Length).TrimStart('\', '/')
+                $badWorktreeCallers += ('{0}:{1}' -f $relativePath, ($lineIndex + 1))
+            }
+        }
+    }
+    Assert-OwnTrue (($badWorktreeCallers.Count -eq 0)) 'worktree-ownership: no unguarded production caller of New-OrchestrationWorktree' ($badWorktreeCallers -join '; ')
+
     # ---------- worktrees (temp git fixture only) ----------
 
     if (-not (Get-GitAvailable)) {

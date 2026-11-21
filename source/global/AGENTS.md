@@ -122,6 +122,11 @@ evidências. Pedido de análise ou plano não autoriza implementação.
 - Planejamento e continuidade são proporcionais: checklist para dependências;
   plano e handoff para trabalho entre sessões; decisão durável quando necessária.
   Subagentes, worktrees, MCP e documentos adicionais não são pré-requisitos.
+- **Dono único do worktree/placement:** no modo híbrido o Orca é dono do
+  workspace externo (`ORCA_WORKTREE_ID`/`ORCA_WORKSPACE_ID`); o OpenCode
+  trabalha somente no caminho recebido e não cria um segundo worktree para a
+  mesma unidade de trabalho nem outra branch. No modo direto o OpenCode mantém
+  seu isolamento nativo ou fallback (`worktree_isolation`).
 
 O entrypoint canônico é
 `{{HOME}}/.config/opencode/skills/hybrid-development/SKILL.md`.

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **Dono único do worktree (P0-02, #140, 2026-11-21):** adapters V1/V2 alinhados ao registry (`task_kernel` e `worktree_isolation` ON desde 2026-10-04; `runtime_grant_enforcement` OFF) e regra de propriedade declarada na política global: no híbrido o Orca é dono do workspace externo e o OpenCode trabalha no caminho recebido, sem segundo worktree; no modo direto permanece o isolamento nativo/fallback. Busca de callers confirma que a criação de worktree só ocorre em testes; guarda de regressão na suíte de propriedade falha se surgir caller de produção sem tratar o placement externo.
+
 - **Guardrail de destino no uninstall híbrido (2026-11-21):** `uninstall.ps1 -ClaudeHybrid` passa a aplicar o mesmo guardrail de destino do `install.ps1` (OrchestrationTargetGuard) ao destino Claude: sem `-ClaudeHome` explícito fora do perfil, exige `-AllowUserProfileTarget`; falha antes de qualquer escrita (`MUTATING_TARGET_REQUIRES_EXPLICIT_PATH`). Testes claude-hybrid 60/60 em PS5.1 e PS7.
 
 - **Correção do instalador híbrido (#291, 2026-11-20):** o bloco marcado em `CLAUDE.md` só é atualizado/removido quando confere com o `block_sha256` do manifest; divergência vira `CONFLICT` preservado (inclusive na desinstalação parcial, que mantém o manifest e o registro dos arquivos modificados). `uninstall.ps1 -ClaudeHybrid` passa a ser Claude-only e não toca a instalação OpenCode; a remoção completa do pacote segue pelo `uninstall.ps1` padrão. Testes estendidos em PS 5.1 e PS7.
