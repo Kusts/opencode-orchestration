@@ -9,8 +9,10 @@
     sanitized bounded state, calls once through the lib (which owns every
     gate, the circuit and the sanitized evidence) and records the typed
     envelope in jev_advisory_result. -JevAdvisoryProbe (test seam,
-    absent = real transport) and -JevAdvisoryBudgetSecondsOverride are
-    direct pass-throughs. The result is advisory evidence only: it never
+    absent = real transport), -JevAdvisoryBudgetSecondsOverride and
+    -JevAdvisoryFlagsPath (test seam for a flags registry fixture; empty =
+    canonical path) are direct pass-throughs. The result is advisory evidence
+    only: it never
     routes, never escalates, never grants and never writes DONE, and any
     non-OK outcome leaves the deterministic plan untouched.
 #>
@@ -24,6 +26,7 @@ function Invoke-OrchestrationPlannerLoop {
         $Options = $null,
         [scriptblock]$JevAdvisoryProbe = $null,
         [int]$JevAdvisoryBudgetSecondsOverride = 0,
+        [string]$JevAdvisoryFlagsPath = '',
         [scriptblock]$AdvisorProbe = $null,
         [scriptblock]$NativeAdvisorExecutor = $null
     )
@@ -215,13 +218,18 @@ function Invoke-OrchestrationPlannerLoop {
         $jevAdvisory=JevNotConsulted-PL 'jev-advisory-not-triggered'
         if([bool](Read-PL $jev 'should_consult' $false) -and ($null -eq (Read-PL $stageOverrides 'jev' $null))){try{
             if((Get-Command Invoke-McpSafetyCall -ErrorAction SilentlyContinue) -eq $null){$envLib=Join-Path $PSScriptRoot 'OrchestrationMcpSafety.ps1';if(Test-Path -LiteralPath $envLib){. $envLib}}
-            $flagNode=Get-JevAdvisoryFlag -FlagsPath (Get-JevAdvisoryDefaultFlagsPath -RepoRoot $root) -RepoRoot $root
-            if([bool]$flagNode.found){
+            # Single gate owner: Invoke-JevAdvisoryCall already reads and
+            # validates the flag registry node (JEV_FLAG_INVALID / JEV_DISABLED /
+            # JEV_WOULD_CONSULT) before any transport work. Reading it here as
+            # well duplicated a registry hit without changing any decision, so
+            # the loop now only projects the state and records the typed result.
+            $flagsPathForJev=([string]$JevAdvisoryFlagsPath).Trim()
+            if([string]::IsNullOrWhiteSpace($flagsPathForJev)){$flagsPathForJev=Get-JevAdvisoryDefaultFlagsPath -RepoRoot $root}
                 $state=JevStateText-PL @('planner turn advisory request',('objective: '+$objectiveForState),('task_shape: '+([string](Read-PL $d 'task_shape' 'unspecified'))),('risk: '+$risk),('uncertainty: '+$uncertainty),('trigger: '+([string](Read-PL $jev 'reason' ''))),('mode: '+([string]$mode.mode)),('workers: '+(@($workers) -join '/')),('parallel_ok: '+([string]$parallel)))
                 $questions=[ordered]@{route=[ordered]@{type='choice';instructions='Which planner route should the harness use for this turn?';criteria=[ordered]@{minimal='sequential minimum route';parallel='parallel fan-out with every gate proven';research='gather the missing information first'}};escalation=[ordered]@{type='score';instructions='How much validation rigor does this turn need?';criteria=@('L1','L2','L3')}}
                 $turnId='planner-jev-advisory'
                 try{$jh=Get-JevAdvisoryInputHash -Tool $jevToolName -TriggerReason ([string](Read-PL $jev 'reason' '')) -Descriptor $d;if(-not [string]::IsNullOrWhiteSpace([string]$jh)){$turnId='planner-'+([string]$jh).Substring(0,24)}}catch{}
-                $raw=Invoke-JevAdvisoryCall -Tool $jevToolName -TurnId $turnId -Descriptor $d -State $state -ToolArgs @{questions=$questions} -Probe $JevAdvisoryProbe -ProbeArgs @($jevToolName,$state,$questions,[int]$JevAdvisoryBudgetSecondsOverride) -PolicyPath (Get-JevAdvisoryDefaultPolicyPath -RepoRoot $root) -FlagsPath (Get-JevAdvisoryDefaultFlagsPath -RepoRoot $root) -RepoRoot $root -TelemetryRoot ([string](Read-PL $o 'jev_advisory_telemetry_root' '')) -BudgetSecondsOverride ([int]$JevAdvisoryBudgetSecondsOverride)
+                $raw=Invoke-JevAdvisoryCall -Tool $jevToolName -TurnId $turnId -Descriptor $d -State $state -ToolArgs @{questions=$questions} -Probe $JevAdvisoryProbe -ProbeArgs @($jevToolName,$state,$questions,[int]$JevAdvisoryBudgetSecondsOverride) -PolicyPath (Get-JevAdvisoryDefaultPolicyPath -RepoRoot $root) -FlagsPath $flagsPathForJev -RepoRoot $root -TelemetryRoot ([string](Read-PL $o 'jev_advisory_telemetry_root' '')) -BudgetSecondsOverride ([int]$JevAdvisoryBudgetSecondsOverride)
                 if($null -eq $raw){throw 'empty-jev-envelope'}
                 $consulted=[bool](Read-PL $raw 'consulted' $false);$rawOut=Read-PL $raw 'output' $null;$budgetS=0
                 try{$budgetS=[int](Read-PL $raw 'budget_s' 0)}catch{$budgetS=0}
@@ -248,7 +256,12 @@ function Invoke-OrchestrationPlannerLoop {
                     Safe-PL "Jev consultation unavailable or unverified. Fallback to deterministic route '$strategyPrior'." 160
                 }
                 $jevAdvisory=[ordered]@{status=(Safe-PL (Read-PL $raw 'status' 'JEV_UNAVAILABLE') 48);failure=(Safe-PL (Read-PL $raw 'failure' '') 48);consulted=$consulted;would_consult=[bool](Read-PL $raw 'would_consult' $false);evaluated=$evaluated;advice_state=$adviceState;advice_received=$adviceReceived;advice_evaluated=$adviceEvaluated;advice_accepted=$adviceAccepted;advice_applied=$adviceApplied;fallback_continue=[bool](Read-PL $raw 'fallback_continue' $true);blocked=[bool](Read-PL $raw 'blocked' $false);tool=(Safe-PL (Read-PL $raw 'tool' $jevToolName) 24);mode=(Safe-PL (Read-PL $raw 'mode' '') 16);circuit=(Safe-PL (Read-PL $raw 'circuit' '') 16);budget_s=$budgetS;recommendation=$sum;answers=[pscustomobject](JevAnswerProjection-PL $rawOut);decision_consumed=$decisionConsumed;decision_taken=$decisionTaken;decision_applied=$decisionApplied;influence_type=$influenceType;strategy_prior=$strategyPrior;strategy_posterior=$strategyPosterior;adaptation_rationale=$adaptRationale;authoritative=$false;recommendation_only=$true}
-            }else{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
+                # Pre-removal equivalence: with the flag node absent, the old
+                # pre-check returned this closed envelope before any lib call.
+                # Map the lib's canonical JEV_FLAG_INVALID back to the exact
+                # same envelope so plan consumers see no change. No probe or
+                # transport was invoked on this path.
+                if([string](Read-PL $raw 'status' '') -ceq 'JEV_FLAG_INVALID'){$jevAdvisory=JevNotConsulted-PL 'jev-advisory-flag-absent'}
         }catch{$jevAdvisory=JevNotConsulted-PL 'jev-advisory-call-failed'}}
         $advisorAdvisory=[ordered]@{consulted=$false;status='not-escalated';reason='no-escalation-signal';authoritative=$false;recommendation_only=$true}
         $advisorMissingEvidence = @()
