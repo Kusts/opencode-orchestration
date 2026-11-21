@@ -232,7 +232,7 @@ try {
         Where-Object {
             (@('.ps1', '.psm1') -contains $_.Extension.ToLowerInvariant()) -and
             ($_.FullName -notmatch '[\\/]\.git[\\/]') -and
-            ($_.Name -cne 'OrchestrationWorktree.ps1') -and
+            ($_.Name -ine 'OrchestrationWorktree.ps1') -and
             ($_.Name -notlike '*.tests.ps1')
         }
     foreach ($sourceFile in $sourceFiles) {
@@ -253,7 +253,7 @@ try {
         }
         $commands = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
         foreach ($cmd in $commands) {
-            if ($cmd.GetCommandName() -ceq 'New-OrchestrationWorktree') {
+            if ($cmd.GetCommandName() -ieq 'New-OrchestrationWorktree') {
                 $badWorktreeCallers += ('{0}:{1}' -f $relativePath, $cmd.Extent.StartLineNumber)
             }
         }
