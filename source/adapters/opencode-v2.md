@@ -603,10 +603,12 @@ de conclusão (`Test-OrchestrationTaskCompletion`)
 → cleanup (release do lease, remoção do worktree owned) → DONE
 (`Complete-OrchestrationTask`, kernel-authorized). Orçamento de retry: 2ª
 falha exige Debugger; 3ª tentativa exige evidência, hipótese ou estratégia
-nova, senão EXHAUSTED (kernel-enforced). Flags `task_kernel`,
-`worktree_isolation` e `runtime_grant_enforcement` iniciam OFF (shadow
-rollout, Phase 19): o fluxo torna-se obrigatório somente após ativação
-com evidência. `DIRECT_VERIFIED` vale apenas para leitura/planejamento sem
+nova, senão EXHAUSTED (kernel-enforced). `task_kernel` e
+`worktree_isolation` estão ON (lote do operador de 2026-10-04, evidência em
+`evidence/v3.1/runtime-reliability/flag-activation-batch-2026-10-04.json`);
+`runtime_grant_enforcement{v1,v2}` permanece OFF (Phase 5, nenhum hard-deny
+antes da validação comportamental). O fluxo torna-se obrigatório somente
+após ativação com evidência. `DIRECT_VERIFIED` vale apenas para leitura/planejamento sem
 mutação e mantém a conformidade direta existente; escrita elegível a trivial
 percorre o caminho `SINGLE_WORKER` com participação observada, sem worker
 exigido apenas em leitura.

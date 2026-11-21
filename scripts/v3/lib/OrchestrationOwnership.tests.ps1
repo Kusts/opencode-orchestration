@@ -221,6 +221,45 @@ try {
         try { [System.Threading.Thread]::CurrentThread.CurrentUICulture = $prevOwnUICulture } catch { }
     }
 
+    # No caller de produção hoje: a criação vive só nos testes. No híbrido,
+    # Orca é dono do workspace externo; impeça caller novo sem placement.
+    # Análise AST: comentários, splatting e chamadas multilinha não burlam a guarda.
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+    $worktreeCallerAllowlist = @()
+    # A allowlist está vazia hoje e só pode crescer com decisão explícita.
+    $badWorktreeCallers = @()
+    $sourceFiles = Get-ChildItem -LiteralPath $repoRoot -Recurse -File |
+        Where-Object {
+            (@('.ps1', '.psm1') -contains $_.Extension.ToLowerInvariant()) -and
+            ($_.FullName -notmatch '[\\/]\.git[\\/]') -and
+            ($_.Name -ine 'OrchestrationWorktree.ps1') -and
+            ($_.Name -notlike '*.tests.ps1')
+        }
+    foreach ($sourceFile in $sourceFiles) {
+        $relativePath = $sourceFile.FullName.Substring($repoRoot.Length).TrimStart('\', '/')
+        if ($worktreeCallerAllowlist -contains $relativePath) { continue }
+        $tokens = $null
+        $errors = $null
+        try {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($sourceFile.FullName, [ref]$tokens, [ref]$errors)
+        }
+        catch {
+            $badWorktreeCallers += ('{0}:PARSE_ERROR' -f $relativePath)
+            continue
+        }
+        if ($errors.Count -gt 0) {
+            $badWorktreeCallers += ('{0}:PARSE_ERROR' -f $relativePath)
+            continue
+        }
+        $commands = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+        foreach ($cmd in $commands) {
+            if ($cmd.GetCommandName() -ieq 'New-OrchestrationWorktree') {
+                $badWorktreeCallers += ('{0}:{1}' -f $relativePath, $cmd.Extent.StartLineNumber)
+            }
+        }
+    }
+    Assert-OwnTrue (($badWorktreeCallers.Count -eq 0)) 'worktree-ownership: no unguarded production caller of New-OrchestrationWorktree' ($badWorktreeCallers -join '; ')
+
     # ---------- worktrees (temp git fixture only) ----------
 
     if (-not (Get-GitAvailable)) {
