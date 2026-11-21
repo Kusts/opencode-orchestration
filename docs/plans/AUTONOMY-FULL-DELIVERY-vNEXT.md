@@ -491,7 +491,7 @@ OPENCODE_ASTRA_AUTHORIZED.
 - `OrchestrationGoalCheckpoint.ps1`: store atômico, 36 assertions PASS.
 - `OrchestrationSessionReconciler.ps1`: read-only, 156 assertions PASS.
 - `github-resume-reconcile.ps1`: reconciliação após CI/PR, 116 assertions PASS.
-- `github-watch.ps1` / `github-await.ps1`: monitoramento de CI/PR.
+- `github-await.ps1`: monitoramento de CI/PR (dados brutos via `gh` nativo).
 
 **Testes:** github-resume-reconcile 116/116 PASS; GoalCheckpoint 36 PASS; SessionReconciler 156 PASS.
 
