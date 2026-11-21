@@ -70,7 +70,7 @@ Aprimorar `scripts/v3/lib/OrchestrationCapabilityDoctor.ps1` para:
 **Issues:** #86, #106, #1
 
 #### 3.1 Contratos Desacoplados
-- **OBSERVE (`scripts/v3/github-watch.ps1`):** Coleta periódica de status de CI, checks de PR e revisões sem chamadas excessivas.
+- **OBSERVE (`gh` nativo + `scripts/v3/github-await.ps1`):** Coleta de status de CI, checks de PR e revisões via `gh`, com classificação de prontidão em `github-await.ps1`; sem polling próprio.
 - **WAIT (`scripts/v3/github-await.ps1`):** Persistência durável da condição esperada, identificador do PR, commit SHA e lease.
 - **WAKE / RESUME (`scripts/v3/github-resume-reconcile.ps1`):** Despacho da continuação autônoma quando a condição for satisfeita.
 
